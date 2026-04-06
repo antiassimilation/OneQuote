@@ -1,6 +1,7 @@
 package com.example.onequote.data.util
 
 import android.graphics.Color
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 object StyleParsers {
@@ -16,9 +17,34 @@ object StyleParsers {
         return Color.argb(values[3], values[0], values[1], values[2])
     }
 
-    fun levelToTextSp(level: Int): Float {
-        val safe = level.coerceIn(0, 10)
-        return (12 + safe * 2).toFloat()
+    /**
+     * 百分比语义：100% = 18sp；0% 表示缩小一倍（9sp）；200% 表示放大一倍（36sp）。
+     */
+    fun percentToBaseTextSp(percent: Int): Float {
+        val safe = percent.coerceIn(0, 200)
+        // 使用指数映射确保三个锚点严格成立：0%->0.5x，100%->1x，200%->2x。
+        val scale = 2.0.pow((safe - 100) / 100.0).toFloat()
+        return 18f * scale
+    }
+
+    /**
+     * 根据组件尺寸与文本长度计算展示字号，仅用于显示，不回写配置。
+     */
+    fun adaptiveWidgetQuoteSp(
+        baseSp: Float,
+        spanX: Int,
+        spanY: Int,
+        quoteLength: Int
+    ): Float {
+        val areaScale = ((spanX.coerceAtLeast(1) * spanY.coerceAtLeast(1)) / 6f)
+            .coerceIn(0.75f, 1.45f)
+        val lengthScale = when {
+            quoteLength > 48 -> 0.72f
+            quoteLength > 36 -> 0.82f
+            quoteLength > 24 -> 0.92f
+            else -> 1f
+        }
+        return (baseSp * areaScale * lengthScale).coerceIn(10f, 42f)
     }
 
     fun levelToShadow(level: Int): Triple<Float, Float, Float> {

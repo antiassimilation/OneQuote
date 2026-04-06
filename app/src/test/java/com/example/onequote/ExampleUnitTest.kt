@@ -1,4 +1,4 @@
-package com.example.onequote
+﻿package com.example.onequote
 
 import com.example.onequote.data.util.StyleParsers
 import org.junit.Test
@@ -6,10 +6,10 @@ import org.junit.Assert.*
 
 class ExampleUnitTest {
     @Test
-    fun level_mapping_is_clamped_and_linear() {
-        assertEquals(12f, StyleParsers.levelToTextSp(-1), 0.001f)
-        assertEquals(22f, StyleParsers.levelToTextSp(5), 0.001f)
-        assertEquals(32f, StyleParsers.levelToTextSp(20), 0.001f)
+    fun font_percent_mapping_behave_as_expected() {
+        assertEquals(9f, StyleParsers.percentToBaseTextSp(0), 0.001f)
+        assertEquals(18f, StyleParsers.percentToBaseTextSp(100), 0.001f)
+        assertEquals(36f, StyleParsers.percentToBaseTextSp(200), 0.001f)
 
         assertEquals(0f, StyleParsers.levelToCornerDp(-3), 0.001f)
         assertEquals(15f, StyleParsers.levelToCornerDp(5), 0.001f)

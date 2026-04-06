@@ -38,16 +38,6 @@
             android:text=""
             android:textColor="#DDDDDDFF"
             android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/widgetRefresh"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:paddingTop="6dp"
-            android:text="刷新"
-            android:textColor="#66FFFFFF"
-            android:textSize="12sp" />
     </LinearLayout>
 
 </FrameLayout>
