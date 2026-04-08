@@ -1,42 +1,57 @@
 package com.example.onequote
 
-import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,14 +60,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.onequote.data.model.FavoriteQuote
+import com.example.onequote.data.model.BuiltinSources
 import com.example.onequote.data.model.LayoutMode
+import com.example.onequote.data.model.ShadowPreset
+import com.example.onequote.data.model.TextAlignMode
 import com.example.onequote.data.model.WidgetClickAction
 import com.example.onequote.data.model.WidgetStyleConfig
 import com.example.onequote.data.repo.QuoteRepository
@@ -62,6 +91,7 @@ import com.example.onequote.scheduler.RefreshScheduler
 import com.example.onequote.ui.theme.OneQuoteTheme
 import com.example.onequote.widget.OneQuoteWidgetProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -72,14 +102,218 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             OneQuoteTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    SettingsScreen(
-                        repository = repository,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                        onToast = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }
-                    )
+                OneQuoteAppRoot(
+                    repository = repository,
+                    onToast = { Toast.makeText(this, it, Toast.LENGTH_SHORT).show() }
+                )
+            }
+        }
+    }
+}
+
+private object Route {
+    const val ONBOARDING_WELCOME = "onboarding_welcome"
+    const val ONBOARDING_ACTION = "onboarding_action"
+    const val ONBOARDING_DONE = "onboarding_done"
+    const val HOME = "home"
+    const val FAVORITES = "favorites"
+    const val API_SETTINGS = "api_settings"
+    const val BEAUTY = "beauty"
+    const val APP_SETTINGS = "app_settings"
+}
+
+@Composable
+private fun OneQuoteAppRoot(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit
+) {
+    val settings by repository.observeSettings().collectAsState(initial = null)
+    val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
+    val loadedSettings = settings
+
+    if (loadedSettings == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("加载中…")
+        }
+        return
+    }
+
+    val startRoute = if (loadedSettings.onboardingCompleted) Route.HOME else Route.ONBOARDING_WELCOME
+
+    androidx.compose.runtime.key(startRoute) {
+        NavHost(
+            navController = navController,
+            startDestination = startRoute,
+            enterTransition = {
+                slideInHorizontally(
+                    animationSpec = tween(220),
+                    initialOffsetX = { width -> width / 3 }
+                ) + fadeIn(animationSpec = tween(220))
+            },
+            exitTransition = {
+                slideOutHorizontally(
+                    animationSpec = tween(220),
+                    targetOffsetX = { width -> -width / 3 }
+                ) + fadeOut(animationSpec = tween(220))
+            },
+            popEnterTransition = {
+                slideInHorizontally(
+                    animationSpec = tween(220),
+                    initialOffsetX = { width -> -width / 3 }
+                ) + fadeIn(animationSpec = tween(220))
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    animationSpec = tween(220),
+                    targetOffsetX = { width -> width / 3 }
+                ) + fadeOut(animationSpec = tween(220))
+            }
+        ) {
+            composable(Route.ONBOARDING_WELCOME) {
+                OnboardingWelcomeScreen(
+                    onNext = { navController.navigate(Route.ONBOARDING_ACTION) },
+                    onToast = onToast
+                )
+            }
+            composable(Route.ONBOARDING_ACTION) {
+                OnboardingActionScreen(
+                    initialSingle = loadedSettings.singleClickAction,
+                    initialDouble = loadedSettings.doubleClickAction,
+                    onSave = { single, double ->
+                        scope.launch(Dispatchers.IO) {
+                            val current = repository.getSettings()
+                            repository.saveSettings(current.copy(singleClickAction = single, doubleClickAction = double))
+                        }
+                        navController.navigate(Route.ONBOARDING_DONE)
+                    }
+                )
+            }
+            composable(Route.ONBOARDING_DONE) {
+                OnboardingDoneScreen(
+                    onStart = {
+                        scope.launch(Dispatchers.IO) {
+                            val current = repository.getSettings()
+                            repository.saveSettings(current.copy(onboardingCompleted = true))
+                        }
+                        navController.navigate(Route.HOME) {
+                            popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                        }
+                    }
+                )
+            }
+            composable(Route.HOME) {
+                HomeScreen(
+                    repository = repository,
+                    onToast = onToast,
+                    onOpenFavorites = { navController.navigate(Route.FAVORITES) },
+                    onOpenApi = { navController.navigate(Route.API_SETTINGS) },
+                    onOpenBeauty = { navController.navigate(Route.BEAUTY) },
+                    onOpenAppSettings = { navController.navigate(Route.APP_SETTINGS) }
+                )
+            }
+            composable(Route.FAVORITES) {
+                FavoritesScreen(repository = repository, onToast = onToast)
+            }
+            composable(Route.API_SETTINGS) {
+                ApiSettingsScreen(repository = repository, onToast = onToast)
+            }
+            composable(Route.BEAUTY) {
+                BeautySettingsScreen(repository = repository, onToast = onToast)
+            }
+            composable(Route.APP_SETTINGS) {
+                AppSettingsScreen(repository = repository, onToast = onToast)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingWelcomeScreen(
+    onNext: () -> Unit,
+    onToast: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var autoStartVisited by remember { mutableStateOf(false) }
+    var storageVisited by remember { mutableStateOf(false) }
+    var showImpactDialog by remember { mutableStateOf(false) }
+    var missingImpacts by remember { mutableStateOf(emptyList<String>()) }
+
+    val batteryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        onToast("省电策略设置页已返回")
+    }
+    val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        autoStartVisited = true
+        onToast("自启动设置页已返回")
+    }
+    val storageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        storageVisited = true
+        onToast("应用权限页已返回")
+    }
+
+    if (showImpactDialog) {
+        AlertDialog(
+            onDismissRequest = { showImpactDialog = false },
+            title = { Text("权限影响提示") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("检测到以下权限可能未完整配置：")
+                    missingImpacts.forEach { Text("• $it") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImpactDialog = false
+                    onNext()
+                }) {
+                    Text("确认")
+                }
+            }
+        )
+    }
+
+    ScreenContainer(title = "欢迎") {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("欢迎使用OneQuote", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(20.dp))
+
+            FullWidthButton("省电权限请求") {
+                onToast("用途：降低系统省电策略对自动刷新的影响")
+                launchIgnoreBatteryOptimization(context, batteryLauncher::launch, onToast)
+            }
+            Spacer(Modifier.height(10.dp))
+            FullWidthButton("自启动") {
+                onToast("用途：提升后台定时刷新可达性")
+                launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
+            }
+            Spacer(Modifier.height(10.dp))
+            FullWidthButton("储存权限") {
+                onToast("用途：用于通过系统文件选择器导入/导出CSV")
+                launchAppPermissionSettings(context, storageLauncher::launch, onToast)
+            }
+
+            Spacer(Modifier.height(20.dp))
+            FullWidthButton("下一步") {
+                val impacts = buildList {
+                    if (!isIgnoringBatteryOptimization(context)) {
+                        add("未开启省电策略豁免：自动刷新可能延迟或失败")
+                    }
+                    if (!autoStartVisited) {
+                        add("未完成自启动设置确认：后台刷新稳定性可能下降")
+                    }
+                    if (!storageVisited) {
+                        add("未完成存储访问设置确认：CSV导入/导出可能受系统限制")
+                    }
+                }
+                if (impacts.isEmpty()) {
+                    onNext()
+                } else {
+                    missingImpacts = impacts
+                    showImpactDialog = true
                 }
             }
         }
@@ -87,135 +321,114 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SettingsScreen(
-    repository: QuoteRepository,
-    modifier: Modifier = Modifier,
-    onToast: (String) -> Unit
+private fun OnboardingActionScreen(
+    initialSingle: WidgetClickAction,
+    initialDouble: WidgetClickAction,
+    onSave: (WidgetClickAction, WidgetClickAction) -> Unit
 ) {
-    // 功能模块：设置、收藏与权限引导。
+    var singleAction by remember { mutableStateOf(initialSingle) }
+    var doubleAction by remember { mutableStateOf(initialDouble) }
+
+    ScreenContainer(title = "欢迎引导") {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("请设置组件单击行为")
+            ActionSelectorRow(selected = singleAction, onSelect = { singleAction = it })
+
+            Text("请设置组件双击行为")
+            ActionSelectorRow(selected = doubleAction, onSelect = { doubleAction = it })
+
+            Text("后续可在“应用设置”页面修改", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FullWidthButton("下一步") { onSave(singleAction, doubleAction) }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingDoneScreen(onStart: () -> Unit) {
+    ScreenContainer(title = "完成") {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("愿一言能陪你度过生活", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(18.dp))
+            FullWidthButton("开始使用", onClick = onStart)
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit,
+    onOpenFavorites: () -> Unit,
+    onOpenApi: () -> Unit,
+    onOpenBeauty: () -> Unit,
+    onOpenAppSettings: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by repository.observeSettings().collectAsState(initial = null)
+    val quote = settings?.lastQuote
 
-    var sourceType by remember { mutableStateOf("") }
-    var sourceUrl by remember { mutableStateOf("") }
-    var sourceAppKey by remember { mutableStateOf("") }
-    var bgRgba by remember { mutableStateOf("0.0.0.140") }
-    var textRgba by remember { mutableStateOf("255.255.255.255") }
-    var authorRgba by remember { mutableStateOf("220.220.220.255") }
-    var layoutMode by remember { mutableStateOf(LayoutMode.HORIZONTAL) }
-    var fontPercent by remember { mutableStateOf(100f) }
-    var cornerLevel by remember { mutableStateOf(4f) }
-    var shadowLevel by remember { mutableStateOf(2f) }
-    var singleClickAction by remember { mutableStateOf(WidgetClickAction.REFRESH) }
-    var doubleClickAction by remember { mutableStateOf(WidgetClickAction.COPY) }
-    var autoMinutesText by remember { mutableStateOf("30") }
-    var showSavedPreview by remember { mutableStateOf(false) }
-    var showFavoritesPage by remember { mutableStateOf(false) }
+    ScreenContainer(title = "首页") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HomeQuoteCard(
+                quoteText = quote?.text ?: "请先在 API 设置中启用来源并主动刷新",
+                authorText = quote?.author?.takeIf { it.isNotBlank() } ?: ""
+            )
+
+            FullWidthButton("主动刷新") {
+                scope.launch(Dispatchers.IO) {
+                    val result = repository.refreshFromEnabledSources()
+                    withContext(Dispatchers.Main) {
+                        if (result.isFailure) onToast("刷新失败，可能全部来源暂不可用")
+                    }
+                    OneQuoteWidgetProvider.refreshAll(context)
+                }
+            }
+
+            FullWidthButton("收藏", onOpenFavorites)
+            FullWidthButton("API设置", onOpenApi)
+            FullWidthButton("自定义美化", onOpenBeauty)
+            FullWidthButton("应用设置", onOpenAppSettings)
+        }
+    }
+}
+
+@Composable
+private fun FavoritesScreen(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by repository.observeSettings().collectAsState(initial = null)
+    val favorites = settings?.favorites.orEmpty().sortedByDescending { it.id }
+
     var pendingExportCsv by remember { mutableStateOf<String?>(null) }
-    var pendingExportLog by remember { mutableStateOf<String?>(null) }
-    var permissionQueueEnabled by remember { mutableStateOf(false) }
-    var currentPermissionStep by remember { mutableStateOf(PermissionGuideStep.NONE) }
-    var runAutoStartStep: (() -> Unit)? = null
-    var runStorageStep: (() -> Unit)? = null
-
-    val batteryOptLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast("省电策略引导已返回")
-        AppDebugLogger.log("MainActivity", "permission_result battery_returned")
-        if (!permissionQueueEnabled) return@rememberLauncherForActivityResult
-        runAutoStartStep?.invoke()
-    }
-    val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast("自启动设置页已返回")
-        AppDebugLogger.log("MainActivity", "permission_result autostart_returned")
-        if (!permissionQueueEnabled) return@rememberLauncherForActivityResult
-        runStorageStep?.invoke()
-    }
-    val storageSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast(if (hasStoragePermission(context)) "存储权限已可用" else "存储权限仍未授予")
-        AppDebugLogger.log("MainActivity", "permission_result storage_settings_returned granted=${hasStoragePermission(context)}")
-        if (permissionQueueEnabled) {
-            permissionQueueEnabled = false
-            currentPermissionStep = PermissionGuideStep.NONE
-        }
-    }
-    val runtimeStoragePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        val granted = grants.values.all { it }
-        onToast(if (granted) "存储权限已授予" else "存储权限被拒绝")
-        AppDebugLogger.log("MainActivity", "permission_result storage_runtime granted=$granted detail=$grants")
-        if (permissionQueueEnabled) {
-            permissionQueueEnabled = false
-            currentPermissionStep = PermissionGuideStep.NONE
-        }
-    }
-
-    runAutoStartStep = {
-        currentPermissionStep = PermissionGuideStep.AUTO_START
-        onToast("申请自启动权限：用于保证自动刷新")
-        AppDebugLogger.log("MainActivity", "permission_request autostart")
-        launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
-    }
-    runStorageStep = {
-        currentPermissionStep = PermissionGuideStep.STORAGE
-        onToast("申请存储权限：用于收藏夹导入导出")
-        AppDebugLogger.log("MainActivity", "permission_request storage")
-        requestStoragePermission(
-            context = context,
-            requestRuntime = runtimeStoragePermissionLauncher::launch,
-            requestManageAllFiles = storageSettingsLauncher::launch,
-            onToast = onToast
-        )
-    }
-
-    LaunchedEffect(Unit) {
-        if (markFirstLaunchPermissionGuide(context)) {
-            permissionQueueEnabled = true
-            currentPermissionStep = PermissionGuideStep.BATTERY
-            onToast("申请省电策略权限：用于保证自动刷新")
-            AppDebugLogger.log("MainActivity", "permission_request battery(first_launch)")
-            launchIgnoreBatteryOptimization(context, batteryOptLauncher::launch, onToast)
-            return@LaunchedEffect
-        }
-
-        if (consumeWidgetRefreshAutoStartGuideFlag(context)) {
-            AppDebugLogger.log("MainActivity", "permission_request autostart(from_widget_refresh)")
-            onToast("检测到小组件刷新：建议开启自启动权限以提升后台刷新可达性")
-            launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
-        }
-    }
 
     val importCsvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch(Dispatchers.IO) {
             runCatching {
-                val importedText = context.contentResolver.openInputStream(uri)
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
+                val importedText = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 if (importedText.isNullOrBlank()) {
-                    AppDebugLogger.log("MainActivity", "import_csv_rejected empty_file")
                     withContext(Dispatchers.Main) { onToast("不支持该文件") }
                     return@runCatching
                 }
                 val summary = repository.importFavoritesFromCsv(importedText)
                 withContext(Dispatchers.Main) {
                     if (summary.unsupportedFile) {
-                        AppDebugLogger.log("MainActivity", "import_csv_rejected unsupported invalid=${summary.invalidCount}")
                         onToast("不支持该文件")
                     } else {
-                        AppDebugLogger.log("MainActivity", "import_csv_success imported=${summary.importedCount} duplicated=${summary.duplicatedCount}")
                         onToast("导入完成：新增${summary.importedCount}，重复${summary.duplicatedCount}")
                     }
                 }
-                if (!summary.unsupportedFile) {
-                    OneQuoteWidgetProvider.refreshAll(context)
-                }
+                if (!summary.unsupportedFile) OneQuoteWidgetProvider.refreshAll(context)
             }.onFailure {
-                AppDebugLogger.log("MainActivity", "import_csv_exception=${it.message}")
-                scope.launch(Dispatchers.Main) {
-                    onToast("不支持该文件")
-                }
+                scope.launch(Dispatchers.Main) { onToast("不支持该文件") }
             }
         }
     }
@@ -224,189 +437,108 @@ private fun SettingsScreen(
         val csvText = pendingExportCsv
         pendingExportCsv = null
         if (uri == null || csvText.isNullOrBlank()) return@rememberLauncherForActivityResult
-
         scope.launch(Dispatchers.IO) {
             val success = runCatching {
                 context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { writer ->
                     writer.write(csvText)
                 }
             }.isSuccess
-            withContext(Dispatchers.Main) {
-                AppDebugLogger.log("MainActivity", "export_csv_result success=$success")
-                onToast(if (success) "导出成功" else "导出失败")
-            }
+            withContext(Dispatchers.Main) { onToast(if (success) "导出成功" else "导出失败") }
         }
     }
 
-    val exportLogLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
-        val logText = pendingExportLog
-        pendingExportLog = null
-        if (uri == null || logText.isNullOrBlank()) return@rememberLauncherForActivityResult
-
-        scope.launch(Dispatchers.IO) {
-            val success = runCatching {
-                context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { writer ->
-                    writer.write(logText)
-                }
-            }.isSuccess
-            withContext(Dispatchers.Main) {
-                AppDebugLogger.log("MainActivity", "export_log_result success=$success")
-                onToast(if (success) "日志导出成功" else "日志导出失败")
-            }
-        }
-    }
-
-    LaunchedEffect(settings?.savedPreviewVersion) {
-        settings?.let {
-            bgRgba = it.style.backgroundRgba
-            textRgba = it.style.textRgba
-            authorRgba = it.style.authorRgba
-            layoutMode = it.style.layoutMode
-            fontPercent = it.style.fontScalePercent.toFloat()
-            cornerLevel = it.style.cornerRadiusLevel.toFloat()
-            shadowLevel = it.style.shadowLevel.toFloat()
-            singleClickAction = it.singleClickAction
-            doubleClickAction = it.doubleClickAction
-            autoMinutesText = it.autoRefreshMinutes.toString()
-        }
-    }
-
-    if (showFavoritesPage) {
-        FavoritesScreen(
-            favorites = settings?.favorites.orEmpty(),
-            onBack = { showFavoritesPage = false },
-            onImport = {
-                if (!hasStoragePermission(context)) {
-                    requestStoragePermission(
-                        context = context,
-                        requestRuntime = runtimeStoragePermissionLauncher::launch,
-                        requestManageAllFiles = storageSettingsLauncher::launch,
-                        onToast = onToast
-                    )
-                    return@FavoritesScreen
-                }
-                if (!canOpenDocument(context)) {
-                    onToast("当前系统不支持导入功能")
-                    return@FavoritesScreen
-                }
-                importCsvLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
-            },
-            onExport = {
-                if (!hasStoragePermission(context)) {
-                    requestStoragePermission(
-                        context = context,
-                        requestRuntime = runtimeStoragePermissionLauncher::launch,
-                        requestManageAllFiles = storageSettingsLauncher::launch,
-                        onToast = onToast
-                    )
-                    return@FavoritesScreen
-                }
-                if (!canCreateDocument(context)) {
-                    onToast("当前系统不支持导出功能")
-                    return@FavoritesScreen
-                }
-                scope.launch(Dispatchers.IO) {
-                    pendingExportCsv = repository.exportFavoritesAsCsv()
-                    withContext(Dispatchers.Main) {
-                        exportCsvLauncher.launch("onequote_favorites.csv")
+    ScreenContainer(title = "收藏") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = {
+                    if (!canOpenDocument(context)) {
+                        onToast("当前系统不支持导入功能")
+                        return@Button
                     }
+                    importCsvLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
+                }, modifier = Modifier.fillMaxWidth(0.48f)) {
+                    Text("导入CSV文件")
                 }
-            },
-            onDelete = { favoriteId ->
-                scope.launch(Dispatchers.IO) {
-                    repository.removeFavorite(favoriteId)
+                Button(onClick = {
+                    if (!canCreateDocument(context)) {
+                        onToast("当前系统不支持导出功能")
+                        return@Button
+                    }
+                    scope.launch(Dispatchers.IO) {
+                        pendingExportCsv = repository.exportFavoritesAsCsv()
+                        withContext(Dispatchers.Main) { exportCsvLauncher.launch("onequote_favorites.csv") }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text("导出CSV文件")
                 }
             }
-        )
-        return
-    }
 
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("OneQuote 设置", style = MaterialTheme.typography.headlineSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { showFavoritesPage = true }) { Text("收藏") }
-            Button(onClick = {
-                scope.launch(Dispatchers.IO) {
-                    AppDebugLogger.log("MainActivity", "user_export_log_clicked")
-                    pendingExportLog = AppDebugLogger.dump()
-                    withContext(Dispatchers.Main) {
-                        exportLogLauncher.launch("onequote_debug_log.txt")
-                    }
-                }
-            }) { Text("导出日志") }
-        }
+            if (favorites.isEmpty()) {
+                Text("暂无收藏", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
+            }
 
-        Text("权限与系统限制")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                onToast("申请省电策略权限：用于保证自动刷新")
-                AppDebugLogger.log("MainActivity", "permission_request battery(manual)")
-                launchIgnoreBatteryOptimization(context, batteryOptLauncher::launch, onToast)
-            }) { Text("省电策略") }
-            Button(onClick = {
-                onToast("申请自启动权限：用于保证自动刷新")
-                AppDebugLogger.log("MainActivity", "permission_request autostart(manual)")
-                launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
-            }) { Text("自启动") }
-            Button(onClick = {
-                onToast("申请存储权限：用于收藏夹导入导出")
-                AppDebugLogger.log("MainActivity", "permission_request storage(manual)")
-                requestStoragePermission(
-                    context = context,
-                    requestRuntime = runtimeStoragePermissionLauncher::launch,
-                    requestManageAllFiles = storageSettingsLauncher::launch,
-                    onToast = onToast
-                )
-            }) { Text("存储权限") }
-        }
-
-        Text("句子来源")
-        settings?.sources?.forEach { source ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("${source.typeName} | ${source.url}")
-                    if (source.tempDisabled) {
-                        Text("已停用，需手动重新勾选", color = Color.Red)
-                    }
-                }
-                Row {
-                    Checkbox(
-                        checked = source.enabled,
-                        onCheckedChange = { checked ->
-                            scope.launch(Dispatchers.IO) {
-                                if (checked) {
-                                    val result = repository.testAndEnableSource(source.id)
-                                    if (result.isFailure) {
-                                        withContext(Dispatchers.Main) {
-                                            onToast("首次测试失败：该来源不可用")
-                                        }
-                                    }
-                                } else {
-                                    repository.disableSource(source.id)
-                                }
-                                OneQuoteWidgetProvider.refreshAll(context)
-                            }
+            favorites.forEach { favorite ->
+                FavoriteRow(
+                    favorite = favorite,
+                    onCopy = {
+                        copyFavoriteToClipboard(context, favorite)
+                        onToast("已复制到剪贴板")
+                    },
+                    onDelete = { id ->
+                        scope.launch(Dispatchers.IO) {
+                            repository.removeFavorite(id)
+                            OneQuoteWidgetProvider.refreshAll(context)
                         }
-                    )
-                    Button(onClick = { scope.launch(Dispatchers.IO) { repository.removeSource(source.id) } }) {
-                        Text("删")
                     }
-                }
+                )
             }
         }
+    }
+}
 
-        OutlinedTextField(sourceType, { sourceType = it }, label = { Text("类型") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(sourceUrl, { sourceUrl = it }, label = { Text("地址") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(sourceAppKey, { sourceAppKey = it }, label = { Text("appkey") }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = {
-            if (sourceType.isBlank() || sourceUrl.isBlank() || sourceAppKey.isBlank()) {
-                onToast("来源信息不完整")
-            } else {
+@Composable
+private fun ApiSettingsScreen(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by repository.observeSettings().collectAsState(initial = null)
+
+    var sourceType by remember { mutableStateOf("") }
+    var sourceUrl by remember { mutableStateOf("") }
+    var sourceAppKey by remember { mutableStateOf("") }
+    var showBuiltinDialog by remember { mutableStateOf(false) }
+
+    val builtinSource = settings?.sources.orEmpty().firstOrNull { it.id == BuiltinSources.HITOKOTO_ID }
+    val builtinSelected = builtinSource?.selectedTypeCodes.orEmpty()
+
+    ScreenContainer(title = "API设置") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(
+                value = sourceType,
+                onValueChange = { sourceType = it },
+                label = { Text("自定义API命名") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = sourceUrl,
+                onValueChange = { sourceUrl = it },
+                label = { Text("URL地址") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = sourceAppKey,
+                onValueChange = { sourceAppKey = it },
+                label = { Text("appkey(选填)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            FullWidthButton("保存来源") {
+                if (sourceType.isBlank() || sourceUrl.isBlank()) {
+                    onToast("请填写 API 命名与 URL 地址")
+                    return@FullWidthButton
+                }
                 scope.launch(Dispatchers.IO) {
                     repository.addSource(sourceType, sourceUrl, sourceAppKey)
                     sourceType = ""
@@ -414,129 +546,104 @@ private fun SettingsScreen(
                     sourceAppKey = ""
                 }
             }
-        }) { Text("新增来源") }
 
-        Spacer(Modifier.height(6.dp))
-        Text("样式配置（保存后显示示例框）")
-        OutlinedTextField(bgRgba, { bgRgba = it }, label = { Text("组件 RGBA") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(textRgba, { textRgba = it }, label = { Text("文本 RGBA") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(authorRgba, { authorRgba = it }, label = { Text("作者 RGBA") }, modifier = Modifier.fillMaxWidth())
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { layoutMode = LayoutMode.HORIZONTAL }) { Text("横向") }
-            Button(onClick = { layoutMode = LayoutMode.VERTICAL }) { Text("竖向") }
-        }
-
-        Text("组件单击行为")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WidgetActionButton("刷新", singleClickAction == WidgetClickAction.REFRESH) {
-                singleClickAction = WidgetClickAction.REFRESH
-            }
-            WidgetActionButton("复制", singleClickAction == WidgetClickAction.COPY) {
-                singleClickAction = WidgetClickAction.COPY
-            }
-            WidgetActionButton("收藏", singleClickAction == WidgetClickAction.FAVORITE) {
-                singleClickAction = WidgetClickAction.FAVORITE
-            }
-        }
-
-        Text("组件双击行为")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WidgetActionButton("刷新", doubleClickAction == WidgetClickAction.REFRESH) {
-                doubleClickAction = WidgetClickAction.REFRESH
-            }
-            WidgetActionButton("复制", doubleClickAction == WidgetClickAction.COPY) {
-                doubleClickAction = WidgetClickAction.COPY
-            }
-            WidgetActionButton("收藏", doubleClickAction == WidgetClickAction.FAVORITE) {
-                doubleClickAction = WidgetClickAction.FAVORITE
-            }
-        }
-
-        Text("字号比例: ${fontPercent.toInt()}%（100%=18sp）")
-        Slider(fontPercent, { fontPercent = it }, valueRange = 0f..200f, steps = 19)
-        Text("圆角级别: ${cornerLevel.toInt()}")
-        Slider(cornerLevel, { cornerLevel = it }, valueRange = 0f..10f, steps = 9)
-        Text("阴影级别: ${shadowLevel.toInt()}")
-        Slider(shadowLevel, { shadowLevel = it }, valueRange = 0f..10f, steps = 9)
-
-        OutlinedTextField(
-            value = autoMinutesText,
-            onValueChange = { autoMinutesText = it.filter(Char::isDigit) },
-            label = { Text("自动刷新分钟（>=30）") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Button(onClick = {
-            val bgOk = StyleParsers.parseRgbaOrNull(bgRgba) != null
-            val textOk = StyleParsers.parseRgbaOrNull(textRgba) != null
-            val authorOk = StyleParsers.parseRgbaOrNull(authorRgba) != null
-            val minutes = autoMinutesText.toIntOrNull() ?: 30
-            if (!bgOk || !textOk || !authorOk) {
-                onToast("RGBA 格式错误，应为 r.g.b.a 且每段 0-255")
-                return@Button
-            }
-            if (minutes < 30) {
-                onToast("自动刷新不能小于30分钟")
-                return@Button
+            FullWidthButton("应用内置源") {
+                showBuiltinDialog = true
             }
 
-            scope.launch(Dispatchers.IO) {
-                val current = repository.getSettings()
-                repository.saveSettings(
-                    current.copy(
-                        style = WidgetStyleConfig(
-                            backgroundRgba = bgRgba,
-                            textRgba = textRgba,
-                            authorRgba = authorRgba,
-                            layoutMode = layoutMode,
-                            fontScalePercent = fontPercent.toInt(),
-                            cornerRadiusLevel = cornerLevel.toInt(),
-                            shadowLevel = shadowLevel.toInt()
-                        ),
-                        autoRefreshMinutes = minutes,
-                        singleClickAction = singleClickAction,
-                        doubleClickAction = doubleClickAction
-                    )
-                )
-                RefreshScheduler.schedule(context, minutes)
-                OneQuoteWidgetProvider.refreshAll(context)
-                showSavedPreview = true
-            }
-        }) {
-            Text("保存配置")
-        }
-
-        Button(onClick = {
-            scope.launch(Dispatchers.IO) {
-                val result = repository.refreshFromEnabledSources()
-                if (result.isFailure) {
-                    withContext(Dispatchers.Main) {
-                        onToast("刷新失败，可能全部来源暂不可用")
+            if (showBuiltinDialog) {
+                val allTypes = BuiltinSources.hitokotoTypeOptions
+                var selectedCodes by remember(builtinSelected) { mutableStateOf(builtinSelected.toSet()) }
+                AlertDialog(
+                    onDismissRequest = { showBuiltinDialog = false },
+                    title = { Text("应用内置源：一言 hitokoto") },
+                    text = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            Text("句子类型筛选（全不选=不使用该来源）")
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                items(allTypes, key = { it.first }) { (code, label) ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = selectedCodes.contains(code),
+                                            onCheckedChange = { checked ->
+                                                selectedCodes = if (checked) selectedCodes + code else selectedCodes - code
+                                            }
+                                        )
+                                        Text("$code - $label")
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            scope.launch(Dispatchers.IO) {
+                                repository.updateBuiltinHitokotoTypeSelection(selectedCodes.toList())
+                                OneQuoteWidgetProvider.refreshAll(context)
+                            }
+                            showBuiltinDialog = false
+                        }) {
+                            Text("保存")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showBuiltinDialog = false }) {
+                            Text("取消")
+                        }
                     }
-                }
-                OneQuoteWidgetProvider.refreshAll(context)
+                )
             }
-        }) {
-            Text("立即刷新一次")
-        }
 
-        if (showSavedPreview) {
-            Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(StyleParsers.parseRgbaOrNull(bgRgba) ?: 0x66000000))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        text = if (layoutMode == LayoutMode.VERTICAL) StyleParsers.asVerticalText("保存后示例框") else "保存后示例框",
-                        color = Color(StyleParsers.parseRgbaOrNull(textRgba) ?: 0xFFFFFFFF.toInt())
-                    )
-                    Text(
-                        text = "— OneQuote",
-                        color = Color(StyleParsers.parseRgbaOrNull(authorRgba) ?: 0xDDDDDDFF.toInt())
-                    )
+            val sources = settings?.sources.orEmpty()
+            if (sources.isEmpty()) {
+                Text("请在上方添加来源", color = Color.Gray)
+            } else {
+                sources.forEach { source ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth(0.75f)) {
+                                Text(source.typeName)
+                                Text(source.url, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (source.tempDisabled) {
+                                    Text("已停用，需手动重新勾选", color = Color.Red)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = source.enabled,
+                                    onCheckedChange = { checked ->
+                                        scope.launch(Dispatchers.IO) {
+                                            if (source.isBuiltin && source.selectedTypeCodes.isEmpty()) {
+                                                withContext(Dispatchers.Main) { onToast("请先在“应用内置源”中选择至少一个分类") }
+                                                return@launch
+                                            }
+                                            if (checked) {
+                                                val result = repository.testAndEnableSource(source.id)
+                                                if (result.isFailure) {
+                                                    withContext(Dispatchers.Main) { onToast("首次测试失败：该来源不可用") }
+                                                }
+                                            } else {
+                                                repository.disableSource(source.id)
+                                            }
+                                            OneQuoteWidgetProvider.refreshAll(context)
+                                        }
+                                    }
+                                )
+                                if (!source.isBuiltin) {
+                                    TextButton(onClick = { scope.launch(Dispatchers.IO) { repository.removeSource(source.id) } }) {
+                                        Text("删除")
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -544,41 +651,548 @@ private fun SettingsScreen(
 }
 
 @Composable
-private fun FavoritesScreen(
-    favorites: List<FavoriteQuote>,
-    onBack: () -> Unit,
-    onImport: () -> Unit,
-    onExport: () -> Unit,
-    onDelete: (Int) -> Unit
+private fun BeautySettingsScreen(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by repository.observeSettings().collectAsState(initial = null)
+
+    var widgetRgb by remember { mutableStateOf("0.0.0") }
+    var widgetAlpha by remember { mutableStateOf("140") }
+    var cornerLevel by remember { mutableStateOf(4f) }
+
+    var fontRgb by remember { mutableStateOf("255.255.255") }
+    var fontAlpha by remember { mutableStateOf("255") }
+    var quoteFontSpText by remember { mutableStateOf("12") }
+
+    var authorRgb by remember { mutableStateOf("220.220.220") }
+    var authorAlpha by remember { mutableStateOf("255") }
+    var authorFontSpText by remember { mutableStateOf("6") }
+
+    var shadowPreset by remember { mutableStateOf(ShadowPreset.NORMAL) }
+    var layoutMode by remember { mutableStateOf(LayoutMode.HORIZONTAL) }
+    var textAlignMode by remember { mutableStateOf(TextAlignMode.LEFT) }
+
+    var previewModel by remember {
+        mutableStateOf(
+            BeautyPreviewModel(
+                quoteColor = Color.White,
+                authorColor = Color(0xFFDDDDDD),
+                quoteFontSp = 12f,
+                authorFontSp = 6f,
+                shadowPreset = ShadowPreset.NORMAL,
+                layoutMode = LayoutMode.HORIZONTAL,
+                textAlignMode = TextAlignMode.LEFT
+            )
+        )
+    }
+    var previewLastUpdateAt by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(settings?.savedPreviewVersion) {
+        val current = settings ?: return@LaunchedEffect
+        val bgParts = current.style.backgroundRgba.split('.')
+        widgetRgb = bgParts.take(3).joinToString(".")
+        widgetAlpha = bgParts.getOrNull(3) ?: "140"
+
+        val textParts = current.style.textRgba.split('.')
+        fontRgb = textParts.take(3).joinToString(".")
+        fontAlpha = textParts.getOrNull(3) ?: "255"
+
+        val authorParts = current.style.authorRgba.split('.')
+        authorRgb = authorParts.take(3).joinToString(".")
+        authorAlpha = authorParts.getOrNull(3) ?: "255"
+
+        cornerLevel = current.style.cornerRadiusLevel.toFloat()
+        quoteFontSpText = current.style.quoteFontSp.toString()
+        authorFontSpText = current.style.authorFontSp.toString()
+        shadowPreset = current.style.shadowPreset
+        layoutMode = current.style.layoutMode
+        textAlignMode = current.style.textAlignMode
+    }
+
+    LaunchedEffect(
+        fontRgb,
+        fontAlpha,
+        quoteFontSpText,
+        authorRgb,
+        authorAlpha,
+        authorFontSpText,
+        shadowPreset,
+        layoutMode,
+        textAlignMode
     ) {
-        Text("收藏", style = MaterialTheme.typography.headlineSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) { Text("返回") }
-            Button(onClick = onImport) { Text("导入CSV") }
-            Button(onClick = onExport) { Text("导出CSV") }
+        // 防抖+短冷却：降低高频输入导致的重组抖动。
+        delay(120)
+        val now = SystemClock.elapsedRealtime()
+        val gap = now - previewLastUpdateAt
+        if (gap < 80L) {
+            delay(80L - gap)
         }
 
-        if (favorites.isEmpty()) {
-            Text("暂无收藏")
-            return@Column
-        }
+        val quoteColor = StyleParsers.parseRgbaOrNull(toRgba(fontRgb, fontAlpha) ?: "255.255.255.255")
+            ?.let { Color(it) }
+            ?: Color.White
+        val authorColor = StyleParsers.parseRgbaOrNull(toRgba(authorRgb, authorAlpha) ?: "220.220.220.255")
+            ?.let { Color(it) }
+            ?: Color(0xFFDDDDDD)
+        val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 12).toFloat()
+        val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 6).toFloat()
 
-        favorites.sortedByDescending { it.id }.forEach { favorite ->
-            FavoriteRow(favorite = favorite, onDelete = onDelete)
+        previewModel = BeautyPreviewModel(
+            quoteColor = quoteColor,
+            authorColor = authorColor,
+            quoteFontSp = quoteFontSp,
+            authorFontSp = authorFontSp,
+            shadowPreset = shadowPreset,
+            layoutMode = layoutMode,
+            textAlignMode = textAlignMode
+        )
+        previewLastUpdateAt = SystemClock.elapsedRealtime()
+    }
+
+    ScreenContainer(title = "自定义美化") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("组件自定义", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = widgetRgb,
+                onValueChange = { widgetRgb = it },
+                label = { Text("组件颜色(RGB格式)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = widgetAlpha,
+                onValueChange = { widgetAlpha = it.filter(Char::isDigit) },
+                label = { Text("透明度设置(0-255)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text("组件圆角：${cornerLevel.toInt()}")
+            Slider(value = cornerLevel, onValueChange = { cornerLevel = it }, valueRange = 0f..10f, steps = 9)
+
+            HorizontalDivider()
+
+            Text("一言自定义", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = fontRgb,
+                onValueChange = { fontRgb = it },
+                label = { Text("字体颜色(RGB格式)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = fontAlpha,
+                onValueChange = { fontAlpha = it.filter(Char::isDigit) },
+                label = { Text("字体透明度(0-255)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = quoteFontSpText,
+                onValueChange = { quoteFontSpText = it.filter(Char::isDigit) },
+                label = { Text("字体大小(6sp-20sp，默认12)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            HorizontalDivider()
+
+            Text("作者自定义", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = authorRgb,
+                onValueChange = { authorRgb = it },
+                label = { Text("作者颜色(RGB格式)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = authorAlpha,
+                onValueChange = { authorAlpha = it.filter(Char::isDigit) },
+                label = { Text("作者透明度(0-255)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = authorFontSpText,
+                onValueChange = { authorFontSpText = it.filter(Char::isDigit) },
+                label = { Text("作者字体大小(3sp-10sp)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text("字体阴影")
+            ShadowPresetSelector(selected = shadowPreset, onSelect = { shadowPreset = it })
+
+            Text("字体排版")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { layoutMode = LayoutMode.HORIZONTAL }, modifier = Modifier.fillMaxWidth(0.48f)) {
+                    Text(if (layoutMode == LayoutMode.HORIZONTAL) "✓ 横向" else "横向")
+                }
+                Button(onClick = { layoutMode = LayoutMode.VERTICAL }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (layoutMode == LayoutMode.VERTICAL) "✓ 竖向" else "竖向")
+                }
+            }
+
+            Text("对齐方式（仅横排生效）")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { textAlignMode = TextAlignMode.LEFT }, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (textAlignMode == TextAlignMode.LEFT) "✓ 左对齐" else "左对齐",
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
+                Button(onClick = { textAlignMode = TextAlignMode.CENTER }, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (textAlignMode == TextAlignMode.CENTER) "✓ 居中" else "居中",
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
+                Button(onClick = { textAlignMode = TextAlignMode.RIGHT }, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (textAlignMode == TextAlignMode.RIGHT) "✓ 右对齐" else "右对齐",
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
+            }
+
+            BeautyPreviewCard(
+                quote = "举头望明月，低头思故乡",
+                author = "李白《静夜思》",
+                layoutMode = previewModel.layoutMode,
+                textAlignMode = previewModel.textAlignMode,
+                quoteColor = previewModel.quoteColor,
+                authorColor = previewModel.authorColor,
+                quoteFontSp = previewModel.quoteFontSp,
+                authorFontSp = previewModel.authorFontSp,
+                shadowPreset = previewModel.shadowPreset
+            )
+
+            FullWidthButton("保存配置") {
+                val bg = toRgba(widgetRgb, widgetAlpha)
+                val text = toRgba(fontRgb, fontAlpha)
+                val authorText = toRgba(authorRgb, authorAlpha)
+                if (bg == null || text == null || authorText == null) {
+                    onToast("颜色格式错误，RGB需为 r.g.b 且透明度 0-255")
+                    return@FullWidthButton
+                }
+
+                val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 12)
+                val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 6)
+
+                scope.launch(Dispatchers.IO) {
+                    val current = repository.getSettings()
+                    repository.saveSettings(
+                        current.copy(
+                            style = WidgetStyleConfig(
+                                backgroundRgba = bg,
+                                textRgba = text,
+                                authorRgba = authorText,
+                                layoutMode = layoutMode,
+                                textAlignMode = textAlignMode,
+                                quoteFontSp = quoteFontSp,
+                                authorFontSp = authorFontSp,
+                                cornerRadiusLevel = cornerLevel.toInt(),
+                                shadowPreset = shadowPreset
+                            )
+                        )
+                    )
+                    OneQuoteWidgetProvider.refreshAll(context)
+                    withContext(Dispatchers.Main) { onToast("样式已保存") }
+                }
+            }
         }
     }
 }
+
+@Composable
+private fun AppSettingsScreen(
+    repository: QuoteRepository,
+    onToast: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by repository.observeSettings().collectAsState(initial = null)
+
+    var singleAction by remember { mutableStateOf(WidgetClickAction.REFRESH) }
+    var doubleAction by remember { mutableStateOf(WidgetClickAction.COPY) }
+    var pendingExportLog by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(settings?.savedPreviewVersion) {
+        val current = settings ?: return@LaunchedEffect
+        singleAction = current.singleClickAction
+        doubleAction = current.doubleClickAction
+    }
+
+    val batteryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        onToast("省电策略设置页已返回")
+    }
+    val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        onToast("自启动设置页已返回")
+    }
+    val storageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        onToast("应用权限页已返回")
+    }
+    val exportLogLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        val logText = pendingExportLog
+        pendingExportLog = null
+        if (uri == null || logText.isNullOrBlank()) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            val success = runCatching {
+                context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { writer ->
+                    writer.write(logText)
+                }
+            }.isSuccess
+            withContext(Dispatchers.Main) { onToast(if (success) "日志导出成功" else "日志导出失败") }
+        }
+    }
+
+    ScreenContainer(title = "应用设置") {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HorizontalDivider()
+            FullWidthButton("导出日志") {
+                scope.launch(Dispatchers.IO) {
+                    pendingExportLog = AppDebugLogger.dump()
+                    withContext(Dispatchers.Main) { exportLogLauncher.launch("onequote_debug_log.txt") }
+                }
+            }
+            HorizontalDivider()
+
+            Text("组件单击行为")
+            ActionSelectorRow(selected = singleAction, onSelect = {
+                singleAction = it
+                scope.launch(Dispatchers.IO) {
+                    val current = repository.getSettings()
+                    repository.saveSettings(current.copy(singleClickAction = it, doubleClickAction = doubleAction))
+                    OneQuoteWidgetProvider.refreshAll(context)
+                }
+            })
+            Text("组件双击行为")
+            ActionSelectorRow(selected = doubleAction, onSelect = {
+                doubleAction = it
+                scope.launch(Dispatchers.IO) {
+                    val current = repository.getSettings()
+                    repository.saveSettings(current.copy(singleClickAction = singleAction, doubleClickAction = it))
+                    OneQuoteWidgetProvider.refreshAll(context)
+                }
+            })
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("权限管理")
+            FullWidthButton("省电权限") {
+                onToast("用途：保证自动刷新稳定")
+                launchIgnoreBatteryOptimization(context, batteryLauncher::launch, onToast)
+            }
+            FullWidthButton("自启动") {
+                onToast("用途：提升后台刷新可达性")
+                launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
+            }
+            FullWidthButton("储存权限") {
+                onToast("用途：通过系统文件选择器导入导出CSV")
+                launchAppPermissionSettings(context, storageLauncher::launch, onToast)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScreenContainer(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text(title) })
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun HomeQuoteCard(
+    quoteText: String,
+    authorText: String
+) {
+    Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            // 首页固定样式：无背景、18sp、无阴影、白色全不透明。
+            Text(
+                text = quoteText,
+                color = Color.White,
+                textAlign = TextAlign.Start,
+                fontSize = 18.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = if (authorText.isBlank()) "" else "— $authorText",
+                color = Color.White,
+                textAlign = TextAlign.End,
+                fontSize = 14.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun BeautyPreviewCard(
+    quote: String,
+    author: String,
+    layoutMode: LayoutMode,
+    textAlignMode: TextAlignMode,
+    quoteColor: Color,
+    authorColor: Color,
+    quoteFontSp: Float,
+    authorFontSp: Float,
+    shadowPreset: ShadowPreset
+) {
+    val quoteDisplay = if (layoutMode == LayoutMode.VERTICAL) StyleParsers.asVerticalText(quote) else quote
+    val shadowSpec = StyleParsers.shadowSpec(shadowPreset)
+    val shadowColor = Color.Black.copy(alpha = shadowSpec.alpha)
+    val quoteTextStyle = TextStyle(
+        shadow = Shadow(
+            color = shadowColor,
+            offset = Offset(shadowSpec.dx, shadowSpec.dy),
+            blurRadius = shadowSpec.radius
+        )
+    )
+    val authorTextStyle = quoteTextStyle
+    val quoteAlign = when (textAlignMode) {
+        TextAlignMode.LEFT -> TextAlign.Start
+        TextAlignMode.CENTER -> TextAlign.Center
+        TextAlignMode.RIGHT -> TextAlign.End
+    }
+    Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(14.dp)
+        ) {
+            if (layoutMode == LayoutMode.VERTICAL) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = StyleParsers.asVerticalText("— $author"),
+                        color = authorColor,
+                        fontSize = authorFontSp.sp,
+                        textAlign = TextAlign.Start,
+                        style = authorTextStyle
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = quoteDisplay,
+                        color = quoteColor,
+                        fontSize = quoteFontSp.sp,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.weight(1f),
+                        style = quoteTextStyle
+                    )
+                }
+            } else {
+                Text(
+                    text = quoteDisplay,
+                    color = quoteColor,
+                    fontSize = quoteFontSp.sp,
+                    textAlign = quoteAlign,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = quoteTextStyle
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "— $author",
+                    color = authorColor,
+                    fontSize = authorFontSp.sp,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = authorTextStyle
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullWidthButton(text: String, onClick: () -> Unit) {
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(text)
+    }
+}
+
+@Composable
+private fun ActionSelectorRow(
+    selected: WidgetClickAction,
+    onSelect: (WidgetClickAction) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { onSelect(WidgetClickAction.REFRESH) }, modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (selected == WidgetClickAction.REFRESH) "✓ 刷新" else "刷新",
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
+        }
+        Button(onClick = { onSelect(WidgetClickAction.COPY) }, modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (selected == WidgetClickAction.COPY) "✓ 复制" else "复制",
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
+        }
+        Button(onClick = { onSelect(WidgetClickAction.FAVORITE) }, modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (selected == WidgetClickAction.FAVORITE) "✓ 收藏" else "收藏",
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShadowPresetSelector(
+    selected: ShadowPreset,
+    onSelect: (ShadowPreset) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { onSelect(ShadowPreset.NONE) }, modifier = Modifier.weight(1f)) {
+            Text(if (selected == ShadowPreset.NONE) "✓ None" else "None", maxLines = 1)
+        }
+        Button(onClick = { onSelect(ShadowPreset.NORMAL) }, modifier = Modifier.weight(1f)) {
+            Text(if (selected == ShadowPreset.NORMAL) "✓ Normal" else "Normal", maxLines = 1)
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { onSelect(ShadowPreset.BOLD) }, modifier = Modifier.weight(1f)) {
+            Text(if (selected == ShadowPreset.BOLD) "✓ Bold" else "Bold", maxLines = 1)
+        }
+        Button(onClick = { onSelect(ShadowPreset.BOLD_LIGHT) }, modifier = Modifier.weight(1f)) {
+            Text(if (selected == ShadowPreset.BOLD_LIGHT) "✓ Bold-Light" else "Bold-Light", maxLines = 1)
+        }
+    }
+}
+
+private data class BeautyPreviewModel(
+    val quoteColor: Color,
+    val authorColor: Color,
+    val quoteFontSp: Float,
+    val authorFontSp: Float,
+    val shadowPreset: ShadowPreset,
+    val layoutMode: LayoutMode,
+    val textAlignMode: TextAlignMode
+)
 
 @Composable
 private fun FavoriteRow(
     favorite: FavoriteQuote,
+    onCopy: () -> Unit,
     onDelete: (Int) -> Unit
 ) {
     Card(shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
@@ -589,54 +1203,34 @@ private fun FavoriteRow(
                 Text("作者：$authorText")
             }
             Text(text = favorite.text)
-            Text(
-                text = "删除",
-                color = Color.Red,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .clickable { onDelete(favorite.id) }
-            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
+                Text(
+                    text = "复制",
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onCopy)
+                )
+                Text(
+                    text = "删除",
+                    color = Color.Red,
+                    modifier = Modifier.clickable { onDelete(favorite.id) }
+                )
+            }
         }
     }
 }
 
-@Composable
-private fun WidgetActionButton(text: String, selected: Boolean, onClick: () -> Unit) {
-    Button(onClick = onClick) {
-        Text(if (selected) "✓ $text" else text)
-    }
+private fun copyFavoriteToClipboard(context: Context, favorite: FavoriteQuote) {
+    val author = favorite.author?.takeIf { it.isNotBlank() }
+    val copyText = if (author.isNullOrBlank()) favorite.text else "${favorite.text}\n— $author"
+    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboardManager.setPrimaryClip(ClipData.newPlainText("onequote_favorite", copyText))
 }
 
-private fun canOpenDocument(context: android.content.Context): Boolean {
-    val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-        addCategory(android.content.Intent.CATEGORY_OPENABLE)
-        type = "*/*"
-    }
-    return intent.resolveActivity(context.packageManager) != null
-}
-
-private fun canCreateDocument(context: android.content.Context): Boolean {
-    val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT).apply {
-        addCategory(android.content.Intent.CATEGORY_OPENABLE)
-        type = "text/csv"
-    }
-    return intent.resolveActivity(context.packageManager) != null
-}
-
-private fun markFirstLaunchPermissionGuide(context: Context): Boolean {
-    val prefs = context.getSharedPreferences("onequote_runtime_flags", Context.MODE_PRIVATE)
-    if (prefs.getBoolean("permission_guided_once", false)) return false
-
-    prefs.edit().putBoolean("permission_guided_once", true).apply()
-    return true
-}
-
-private fun consumeWidgetRefreshAutoStartGuideFlag(context: Context): Boolean {
-    val prefs = context.getSharedPreferences("onequote_runtime_flags", Context.MODE_PRIVATE)
-    val key = "need_autostart_guide_after_widget_refresh"
-    if (!prefs.getBoolean(key, false)) return false
-    prefs.edit().putBoolean(key, false).apply()
-    return true
+private fun isIgnoringBatteryOptimization(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }
 
 private fun launchIgnoreBatteryOptimization(
@@ -645,9 +1239,7 @@ private fun launchIgnoreBatteryOptimization(
     onToast: (String) -> Unit
 ) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    if (powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
-        AppDebugLogger.log("MainActivity", "battery_optimization_already_ignored=true")
+    if (isIgnoringBatteryOptimization(context)) {
         onToast("已开启省电策略豁免")
         return
     }
@@ -657,10 +1249,8 @@ private fun launchIgnoreBatteryOptimization(
     }
     val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
     runCatching { launch(requestIntent) }
-        .onSuccess { AppDebugLogger.log("MainActivity", "battery_optimization_launch=request") }
         .onFailure {
             runCatching { launch(fallbackIntent) }
-                .onSuccess { AppDebugLogger.log("MainActivity", "battery_optimization_launch=fallback") }
                 .onFailure { onToast("无法打开省电策略设置") }
         }
 }
@@ -686,11 +1276,6 @@ private fun launchAutoStartSettings(
         manufacturer.contains("vivo") -> listOf(
             Intent().setClassName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")
         )
-        manufacturer.contains("samsung") -> listOf(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-        )
         else -> listOf(
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.parse("package:${context.packageName}")
@@ -698,96 +1283,62 @@ private fun launchAutoStartSettings(
         )
     }
 
-    val launched = intents.firstOrNull { intent ->
-        intent.resolveActivity(context.packageManager) != null
-    }
-    if (launched == null) {
-        AppDebugLogger.log("MainActivity", "autostart_launch=not_found")
+    val target = intents.firstOrNull { it.resolveActivity(context.packageManager) != null }
+    if (target == null) {
         onToast("未找到自启动设置入口")
         return
     }
-    runCatching { launch(launched) }
-        .onSuccess { AppDebugLogger.log("MainActivity", "autostart_launch=success") }
-        .onFailure {
-            AppDebugLogger.log("MainActivity", "autostart_launch=failed error=${it.message}")
-            onToast("打开自启动设置失败")
-        }
+    runCatching { launch(target) }
+        .onFailure { onToast("打开自启动设置失败") }
 }
 
-private fun hasStoragePermission(context: Context): Boolean {
-    return when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> Environment.isExternalStorageManager()
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> true
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-            val readGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
-            val writeGranted = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-            readGranted && writeGranted
-        }
-        else -> true
-    }
-}
-
-private fun requestStoragePermission(
+private fun launchAppPermissionSettings(
     context: Context,
-    requestRuntime: (Array<String>) -> Unit,
-    requestManageAllFiles: (Intent) -> Unit,
+    launch: (Intent) -> Unit,
     onToast: (String) -> Unit
 ) {
-    if (hasStoragePermission(context)) {
-        AppDebugLogger.log("MainActivity", "storage_permission_already_granted=true")
-        onToast("存储权限已可用")
-        return
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:${context.packageName}")
     }
-
-    when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            val fallback = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-            runCatching { requestManageAllFiles(intent) }
-                .onSuccess { AppDebugLogger.log("MainActivity", "storage_permission_launch=manage_app_all_files") }
-                .onFailure {
-                    runCatching { requestManageAllFiles(fallback) }
-                        .onSuccess { AppDebugLogger.log("MainActivity", "storage_permission_launch=manage_all_files_fallback") }
-                        .onFailure { onToast("无法打开存储权限设置") }
-                }
-        }
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-            val permissions = mutableListOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                permissions += Manifest.permission.WRITE_EXTERNAL_STORAGE
-            }
-            AppDebugLogger.log("MainActivity", "storage_permission_launch=runtime permissions=$permissions")
-            requestRuntime(permissions.toTypedArray())
-        }
-    }
+    runCatching { launch(intent) }
+        .onFailure { onToast("无法打开应用权限设置") }
 }
 
-private enum class PermissionGuideStep {
-    NONE,
-    BATTERY,
-    AUTO_START,
-    STORAGE
+private fun canOpenDocument(context: Context): Boolean {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "*/*"
+    }
+    return intent.resolveActivity(context.packageManager) != null
+}
+
+private fun canCreateDocument(context: Context): Boolean {
+    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "text/csv"
+    }
+    return intent.resolveActivity(context.packageManager) != null
+}
+
+private fun toRgba(rgbText: String, alphaText: String): String? {
+    val rgbParts = rgbText.split('.').map { it.trim() }
+    if (rgbParts.size != 3) return null
+
+    val r = rgbParts[0].toIntOrNull() ?: return null
+    val g = rgbParts[1].toIntOrNull() ?: return null
+    val b = rgbParts[2].toIntOrNull() ?: return null
+    val a = alphaText.toIntOrNull() ?: return null
+    if (r !in 0..255 || g !in 0..255 || b !in 0..255 || a !in 0..255) return null
+
+    val rgba = "$r.$g.$b.$a"
+    return if (StyleParsers.parseRgbaOrNull(rgba) != null) rgba else null
 }
 
 @Preview(showBackground = true)
 @Composable
-private fun SettingsPreview() {
+private fun PreviewHomeCard() {
     OneQuoteTheme {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("OneQuote")
-        }
+        HomeQuoteCard("举头望明月，低头思故乡", "李白《静夜思》")
     }
 }
 

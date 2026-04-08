@@ -2,6 +2,7 @@ package com.example.onequote.data.network
 
 import com.example.onequote.data.model.QuoteContent
 import com.example.onequote.data.model.QuoteSourceConfig
+import com.example.onequote.data.model.BuiltinSources
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -18,12 +19,28 @@ class QuoteApiClient {
         .build()
 
     fun fetch(source: QuoteSourceConfig): Result<QuoteContent> {
-        val httpUrl = source.url.toHttpUrlOrNull()
+        val httpUrlBuilder = source.url.toHttpUrlOrNull()
             ?.newBuilder()
-            ?.addQueryParameter("format", "json")
-            ?.addQueryParameter("appkey", source.appKey)
-            ?.build()
             ?: return Result.failure(IllegalArgumentException("invalid_url"))
+
+        if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID) {
+            source.selectedTypeCodes
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .forEach { code ->
+                    httpUrlBuilder.addQueryParameter("c", code)
+                }
+            // 明确约束返回格式与编码，减少解析歧义。
+            httpUrlBuilder.addQueryParameter("encode", "json")
+            httpUrlBuilder.addQueryParameter("charset", "utf-8")
+        } else {
+            httpUrlBuilder.addQueryParameter("format", "json")
+            if (source.appKey.isNotBlank()) {
+                httpUrlBuilder.addQueryParameter("appkey", source.appKey)
+            }
+        }
+
+        val httpUrl = httpUrlBuilder.build()
 
         val request = Request.Builder().url(httpUrl).get().build()
         return try {
@@ -32,22 +49,51 @@ class QuoteApiClient {
                     return Result.failure(IOException("http_${response.code}"))
                 }
                 val body = response.body?.string().orEmpty()
-                val parsed = json.decodeFromString(ApiResponse.serializer(), body)
-                if (parsed.code != 200 || parsed.data?.text.isNullOrBlank()) {
-                    Result.failure(IllegalStateException("api_code_${parsed.code}"))
-                } else {
-                    Result.success(
-                        QuoteContent(
-                            text = parsed.data?.text.orEmpty(),
-                            author = parsed.data?.author,
-                            sourceType = source.typeName
-                        )
-                    )
-                }
+                parseHitokoto(body, source)
+                    ?: parseLegacy(body, source)
+                    ?: Result.failure(IllegalStateException("api_payload_invalid"))
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun parseHitokoto(body: String, source: QuoteSourceConfig): Result<QuoteContent>? {
+        val parsed = runCatching { json.decodeFromString(HitokotoResponse.serializer(), body) }.getOrNull()
+            ?: return null
+        val text = parsed.hitokoto?.trim().orEmpty()
+        if (text.isBlank()) return null
+
+        val normalizedCode = normalizeHitokotoTypeCode(parsed.type)
+        return Result.success(
+            QuoteContent(
+                text = text,
+                author = parsed.fromWho?.trim().takeUnless { it.isNullOrBlank() },
+                sourceType = source.typeName,
+                sourceTypeCode = normalizedCode,
+                sourceFrom = parsed.from?.trim().takeUnless { it.isNullOrBlank() }
+            )
+        )
+    }
+
+    private fun parseLegacy(body: String, source: QuoteSourceConfig): Result<QuoteContent>? {
+        val parsed = runCatching { json.decodeFromString(ApiResponse.serializer(), body) }.getOrNull()
+            ?: return null
+        if (parsed.code != 200 || parsed.data?.text.isNullOrBlank()) {
+            return Result.failure(IllegalStateException("api_code_${parsed.code}"))
+        }
+        return Result.success(
+            QuoteContent(
+                text = parsed.data.text.orEmpty(),
+                author = parsed.data.author,
+                sourceType = source.typeName
+            )
+        )
+    }
+
+    private fun normalizeHitokotoTypeCode(raw: String?): String {
+        val code = raw?.trim()?.lowercase().orEmpty()
+        return if (code in BuiltinSources.allHitokotoTypeCodes) code else "a"
     }
 }
 
@@ -62,5 +108,14 @@ private data class ApiResponse(
 private data class ApiData(
     val text: String? = null,
     val author: String? = null
+)
+
+@Serializable
+private data class HitokotoResponse(
+    val hitokoto: String? = null,
+    val type: String? = null,
+    val from: String? = null,
+    @kotlinx.serialization.SerialName("from_who")
+    val fromWho: String? = null
 )
 

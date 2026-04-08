@@ -2,4 +2,32 @@
 <resources>
 
     <style name="Theme.OneQuote" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="WidgetTextShadowNone" parent="@android:style/TextAppearance.Material">
+        <item name="android:shadowColor">#00000000</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">0</item>
+        <item name="android:shadowRadius">0</item>
+    </style>
+
+    <style name="WidgetTextShadowNormal" parent="@android:style/TextAppearance.Material">
+        <item name="android:shadowColor">#61000000</item>
+        <item name="android:shadowDx">0.8</item>
+        <item name="android:shadowDy">0.8</item>
+        <item name="android:shadowRadius">1.6</item>
+    </style>
+
+    <style name="WidgetTextShadowBold" parent="@android:style/TextAppearance.Material">
+        <item name="android:shadowColor">#8F000000</item>
+        <item name="android:shadowDx">1.1</item>
+        <item name="android:shadowDy">1.1</item>
+        <item name="android:shadowRadius">2.4</item>
+    </style>
+
+    <style name="WidgetTextShadowBoldLight" parent="@android:style/TextAppearance.Material">
+        <item name="android:shadowColor">#BD000000</item>
+        <item name="android:shadowDx">1.4</item>
+        <item name="android:shadowDy">1.4</item>
+        <item name="android:shadowRadius">3.1</item>
+    </style>
 </resources>

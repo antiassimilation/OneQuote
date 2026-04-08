@@ -8,10 +8,6 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Log
 import android.util.TypedValue
@@ -40,11 +36,13 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        AppDebugLogger.log(TAG, "on_update ids=${appWidgetIds.joinToString(prefix = "[", postfix = "]")}")
         refreshAll(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        AppDebugLogger.log(TAG, "on_receive action=${intent.action}")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
@@ -95,15 +93,16 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
         private var lastAction: WidgetClickAction? = null
         private var lastRefreshDispatchAtElapsedMs: Long = 0L
         private var currentToast: Toast? = null
-        private val bgCacheLock = Any()
-        private var cachedBgKey: String? = null
-        private var cachedBgBitmap: Bitmap? = null
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, OneQuoteWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(component)
-            if (ids.isEmpty()) return
+            AppDebugLogger.log(TAG, "refresh_all ids=${ids.joinToString(prefix = "[", postfix = "]")}")
+            if (ids.isEmpty()) {
+                AppDebugLogger.log(TAG, "refresh_all_skipped reason=no_widget_instance")
+                return
+            }
 
             CoroutineScope(Dispatchers.IO).launch {
                 val repo = (context.applicationContext as OneQuoteApp).repository
@@ -119,30 +118,31 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                         else -> quote.text
                     }
                     val authorText = quote?.author?.takeIf { it.isNotBlank() }?.let { "— $it" } ?: ""
+                    val authorVerticalText = quote?.author?.takeIf { it.isNotBlank() }?.let { "— $it" } ?: ""
 
-                    val options = manager.getAppWidgetOptions(id)
-                    val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 180)
-                    val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
-                    val maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth)
-                    val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight)
-                    val spanX = estimateSpan(maxWidth)
-                    val spanY = estimateSpan(maxHeight)
-                    val baseSp = StyleParsers.percentToBaseTextSp(style.fontScalePercent)
-                    val quoteSp = StyleParsers.adaptiveWidgetQuoteSp(baseSp, spanX, spanY, quote?.text?.length ?: 0)
-                    val authorSp = (quoteSp * 0.55f).coerceIn(10f, 20f)
+                    // 使用绝对字号配置：不再沿用旧比例语义。
+                    val quoteSp = StyleParsers.clampQuoteFontSp(style.quoteFontSp).toFloat()
+                    val authorSp = StyleParsers.clampAuthorFontSp(style.authorFontSp).toFloat()
+
+                    val isVertical = style.layoutMode == LayoutMode.VERTICAL
+                    views.setViewVisibility(R.id.horizontalContainer, if (isVertical) View.GONE else View.VISIBLE)
+                    views.setViewVisibility(R.id.verticalContainer, if (isVertical) View.VISIBLE else View.GONE)
 
                     views.setTextViewText(R.id.widgetQuote, quoteText)
                     views.setTextViewText(R.id.widgetAuthor, authorText)
-                    views.setViewVisibility(
-                        R.id.widgetAuthor,
-                        if (authorText.isBlank()) View.GONE else View.VISIBLE
-                    )
+                    views.setTextViewText(R.id.widgetQuoteVertical, quoteText)
+                    views.setTextViewText(R.id.widgetAuthorVertical, if (isVertical) StyleParsers.asVerticalText(authorVerticalText) else authorVerticalText)
+
+                    views.setViewVisibility(R.id.widgetAuthor, if (authorText.isBlank()) View.GONE else View.VISIBLE)
+                    views.setViewVisibility(R.id.widgetAuthorVertical, if (authorVerticalText.isBlank()) View.GONE else View.VISIBLE)
 
                     StyleParsers.parseRgbaOrNull(style.textRgba)?.let {
                         views.setTextColor(R.id.widgetQuote, it)
+                        views.setTextColor(R.id.widgetQuoteVertical, it)
                     }
                     StyleParsers.parseRgbaOrNull(style.authorRgba)?.let {
                         views.setTextColor(R.id.widgetAuthor, it)
+                        views.setTextColor(R.id.widgetAuthorVertical, it)
                     }
 
                     views.setTextViewTextSize(
@@ -150,13 +150,13 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                         TypedValue.COMPLEX_UNIT_SP,
                         quoteSp
                     )
+                    views.setTextViewTextSize(
+                        R.id.widgetQuoteVertical,
+                        TypedValue.COMPLEX_UNIT_SP,
+                        quoteSp
+                    )
                     views.setTextViewTextSize(R.id.widgetAuthor, TypedValue.COMPLEX_UNIT_SP, authorSp)
-
-                    val bgColor = StyleParsers.parseRgbaOrNull(style.backgroundRgba)
-                    if (bgColor != null) {
-                        val corner = StyleParsers.levelToCornerDp(style.cornerRadiusLevel)
-                        views.setImageViewBitmap(R.id.widgetBackground, roundedBackgroundCached(bgColor, corner))
-                    }
+                    views.setTextViewTextSize(R.id.widgetAuthorVertical, TypedValue.COMPLEX_UNIT_SP, authorSp)
 
                     val clickIntent = Intent(context, OneQuoteWidgetProvider::class.java).apply {
                         action = ACTION_WIDGET_TAP
@@ -170,7 +170,13 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                     )
                     views.setOnClickPendingIntent(R.id.widgetRoot, clickPendingIntent)
 
-                    manager.updateAppWidget(id, views)
+                    runCatching {
+                        manager.updateAppWidget(id, views)
+                    }.onSuccess {
+                        AppDebugLogger.log(TAG, "update_widget_success id=$id")
+                    }.onFailure {
+                        AppDebugLogger.log(TAG, "update_widget_failed id=$id error=${it.message}")
+                    }
                 }
             }
         }
@@ -429,37 +435,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
             AppDebugLogger.log(TAG, "autostart_guide_marked_from_widget_refresh=true")
         }
 
-        /**
-         * 缓存背景位图，减少刷新时重复创建大位图带来的CPU与内存抖动。
-         */
-        private fun roundedBackgroundCached(color: Int, cornerDp: Float): Bitmap {
-            val key = "$color|$cornerDp"
-            synchronized(bgCacheLock) {
-                if (cachedBgKey == key && cachedBgBitmap != null) {
-                    return cachedBgBitmap as Bitmap
-                }
-                val next = roundedBackground(color, cornerDp)
-                cachedBgKey = key
-                cachedBgBitmap = next
-                return next
-            }
-        }
-
-        private fun estimateSpan(sizeDp: Int): Int {
-            // 对应Launcher常见网格宽高，避免复杂计算与高开销。
-            return (sizeDp / 70).coerceIn(1, 6)
-        }
-
-        private fun roundedBackground(color: Int, cornerDp: Float): Bitmap {
-            val width = 900
-            val height = 500
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-            val radius = cornerDp * 3f
-            canvas.drawRoundRect(RectF(0f, 0f, width.toFloat(), height.toFloat()), radius, radius, paint)
-            return bitmap
-        }
     }
 }
 

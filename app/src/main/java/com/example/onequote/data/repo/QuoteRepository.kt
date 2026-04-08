@@ -1,6 +1,7 @@
 package com.example.onequote.data.repo
 
 import com.example.onequote.data.model.AppSettings
+import com.example.onequote.data.model.BuiltinSources
 import com.example.onequote.data.model.FavoriteQuote
 import com.example.onequote.data.model.QuoteContent
 import com.example.onequote.data.model.QuoteSourceConfig
@@ -48,6 +49,32 @@ class QuoteRepository(
         store.update { it.copy(sources = it.sources + source) }
     }
 
+    suspend fun updateBuiltinHitokotoTypeSelection(selectedCodes: List<String>) {
+        val normalized = selectedCodes
+            .map(String::trim)
+            .map(String::lowercase)
+            .filter { it in BuiltinSources.allHitokotoTypeCodes }
+            .distinct()
+
+        store.update { current ->
+            current.copy(
+                sources = current.sources.map { source ->
+                    if (source.id == BuiltinSources.HITOKOTO_ID) {
+                        // 全不选视为不使用该来源：enabled=false；否则默认可用。
+                        source.copy(
+                            selectedTypeCodes = normalized,
+                            enabled = normalized.isNotEmpty(),
+                            tempDisabled = false,
+                            failStreak = 0
+                        )
+                    } else {
+                        source
+                    }
+                }
+            )
+        }
+    }
+
     suspend fun removeSource(sourceId: String) {
         store.update { current ->
             current.copy(sources = current.sources.filterNot { it.id == sourceId })
@@ -59,6 +86,11 @@ class QuoteRepository(
         val settings = store.getSettings()
         val source = settings.sources.firstOrNull { it.id == sourceId }
             ?: return Result.failure(IllegalArgumentException("source_not_found"))
+
+        if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty()) {
+            AppDebugLogger.log(logTag, "test_and_enable_blocked sourceId=$sourceId reason=empty_type_selection")
+            return Result.failure(IllegalStateException("builtin_type_empty"))
+        }
 
         val testResult = apiClient.fetch(source)
         return if (testResult.isSuccess) {
@@ -103,8 +135,12 @@ class QuoteRepository(
         val settings = getSettings()
         val quote = settings.lastQuote ?: return Result.failure(IllegalStateException("no_quote"))
         AppDebugLogger.log(logTag, "favorite_from_last_quote source=${quote.sourceType} author=${quote.author?.isNotBlank() == true} len=${quote.text.length}")
+        val displaySource = quote.sourceFrom
+            ?.takeIf { it.isNotBlank() }
+            ?: quote.sourceType
+            ?: "未知来源"
         return addFavorite(
-            sourceApiName = quote.sourceType ?: "未知来源",
+            sourceApiName = displaySource,
             author = quote.author,
             text = quote.text
         )
@@ -249,7 +285,9 @@ class QuoteRepository(
         AppDebugLogger.log(logTag, "refresh_start")
         try {
             val current = store.getSettings()
-            val enabledSources = current.sources.filter { it.enabled }
+            val enabledSources = current.sources.filter { source ->
+                source.enabled && !(source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty())
+            }
             if (enabledSources.isEmpty()) {
                 AppDebugLogger.log(logTag, "refresh_failed reason=no_enabled_source")
                 return Result.failure(IllegalStateException("no_enabled_source"))

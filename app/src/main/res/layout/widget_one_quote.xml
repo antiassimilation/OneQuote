@@ -13,6 +13,7 @@
         android:scaleType="fitXY" />
 
     <LinearLayout
+        android:id="@+id/horizontalContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
@@ -38,6 +39,37 @@
             android:text=""
             android:textColor="#DDDDDDFF"
             android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/verticalContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widgetAuthorVertical"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="start"
+            android:maxLines="18"
+            android:text=""
+            android:textColor="#DDDDDDFF"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widgetQuoteVertical"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="start"
+            android:maxLines="24"
+            android:text="OneQuote"
+            android:textColor="#FFFFFFFF"
+            android:textSize="20sp" />
     </LinearLayout>
 
 </FrameLayout>
