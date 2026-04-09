@@ -17,9 +17,9 @@ object StyleParsers {
         return Color.argb(values[3], values[0], values[1], values[2])
     }
 
-    fun clampQuoteFontSp(input: Int): Int = input.coerceIn(6, 20)
+    fun clampQuoteFontSp(input: Int): Int = input.coerceIn(12, 25)
 
-    fun clampAuthorFontSp(input: Int): Int = input.coerceIn(3, 10)
+    fun clampAuthorFontSp(input: Int): Int = input.coerceIn(12, 20)
 
     /**
      * 将百分比映射到基础字号（sp）。
@@ -40,9 +40,13 @@ object StyleParsers {
     fun shadowSpec(preset: ShadowPreset): ShadowSpec {
         return when (preset) {
             ShadowPreset.NONE -> ShadowSpec(radius = 0f, dx = 0f, dy = 0f, alpha = 0f)
-            ShadowPreset.NORMAL -> ShadowSpec(radius = 1.6f, dx = 0.8f, dy = 0.8f, alpha = 0.38f)
-            ShadowPreset.BOLD -> ShadowSpec(radius = 2.4f, dx = 1.1f, dy = 1.1f, alpha = 0.56f)
-            ShadowPreset.BOLD_LIGHT -> ShadowSpec(radius = 3.1f, dx = 1.4f, dy = 1.4f, alpha = 0.74f)
+            // 需求调整：
+            // 1) Normal 强度提升为原 Bold
+            // 2) Bold 强度提升为原 Bold-Light
+            // 3) Bold-Light 进一步增强
+            ShadowPreset.NORMAL -> ShadowSpec(radius = 2.4f, dx = 1.1f, dy = 1.1f, alpha = 0.56f)
+            ShadowPreset.BOLD -> ShadowSpec(radius = 3.1f, dx = 1.4f, dy = 1.4f, alpha = 0.74f)
+            ShadowPreset.BOLD_LIGHT -> ShadowSpec(radius = 3.8f, dx = 1.8f, dy = 1.8f, alpha = 0.88f)
         }
     }
 
@@ -65,4 +69,3 @@ data class ShadowSpec(
     val dy: Float,
     val alpha: Float
 )
-

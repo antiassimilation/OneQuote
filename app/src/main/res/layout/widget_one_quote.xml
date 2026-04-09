@@ -3,7 +3,7 @@
     android:id="@+id/widgetRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="12dp">
+    android:padding="8dp">
 
     <ImageView
         android:id="@+id/widgetBackground"
@@ -16,61 +16,366 @@
         android:id="@+id/horizontalContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:gravity="center_vertical"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="8dp">
 
-        <TextView
-            android:id="@+id/widgetQuote"
+        <!-- 横排正文：四层阴影 + 主文本。 -->
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:maxLines="8"
-            android:text="OneQuote"
-            android:textColor="#FFFFFFFF"
-            android:textSize="20sp" />
+            android:layout_height="wrap_content">
 
-        <TextView
-            android:id="@+id/widgetAuthor"
+            <TextView
+                android:id="@+id/widgetQuoteShadow1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteShadow2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteShadow3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteShadow4"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteShadow5"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteShadow6"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="6"
+                android:text="OneQuote"
+                android:textColor="#FFFFFFFF"
+                android:textSize="20sp" />
+        </FrameLayout>
+
+        <!-- 横排作者：四层阴影 + 主文本。 -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="end"
-            android:text=""
-            android:textColor="#DDDDDDFF"
-            android:textSize="12sp" />
+            android:layout_marginTop="6dp">
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow4"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow5"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorShadow6"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#00000000"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:gravity="end"
+                android:maxLines="2"
+                android:text=""
+                android:textColor="#DDDDDDFF"
+                android:textSize="12sp" />
+        </FrameLayout>
     </LinearLayout>
 
     <LinearLayout
         android:id="@+id/verticalContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:padding="8dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/widgetAuthorVertical"
+        <!-- 竖排作者：四层阴影 + 主文本。 -->
+        <FrameLayout
             android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="start"
-            android:maxLines="18"
-            android:text=""
-            android:textColor="#DDDDDDFF"
-            android:textSize="12sp" />
+            android:layout_height="match_parent">
 
-        <TextView
-            android:id="@+id/widgetQuoteVertical"
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow1"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow2"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow3"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow4"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow5"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVerticalShadow6"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#00000000"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widgetAuthorVertical"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="start"
+                android:maxLines="18"
+                android:text=""
+                android:textColor="#DDDDDDFF"
+                android:textSize="12sp" />
+        </FrameLayout>
+
+        <!-- 竖排正文：四层阴影 + 主文本。 -->
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:gravity="start"
-            android:maxLines="24"
-            android:text="OneQuote"
-            android:textColor="#FFFFFFFF"
-            android:textSize="20sp" />
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow1"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow2"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow3"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow4"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow5"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textStyle="bold"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVerticalShadow6"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#00000000"
+                android:textSize="20sp" />
+
+            <TextView
+                android:id="@+id/widgetQuoteVertical"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:ellipsize="end"
+                android:gravity="start"
+                android:maxLines="24"
+                android:text="OneQuote"
+                android:textColor="#FFFFFFFF"
+                android:textSize="20sp" />
+        </FrameLayout>
     </LinearLayout>
 
 </FrameLayout>
-

@@ -37,10 +37,10 @@ data class WidgetStyleConfig(
     val authorRgba: String = "220.220.220.255",
     val layoutMode: LayoutMode = LayoutMode.HORIZONTAL,
     val textAlignMode: TextAlignMode = TextAlignMode.LEFT,
-    /** 正文字号（sp），范围 6~20。 */
-    val quoteFontSp: Int = 12,
-    /** 作者字号（sp），范围 3~10。 */
-    val authorFontSp: Int = 6,
+    /** 正文字号（sp），范围 12~25。 */
+    val quoteFontSp: Int = 16,
+    /** 作者字号（sp），范围 12~20。 */
+    val authorFontSp: Int = 12,
     val cornerRadiusLevel: Int = 4,
     /** 阴影强度预设，正文与作者共用。 */
     val shadowPreset: ShadowPreset = ShadowPreset.NORMAL
@@ -133,4 +133,3 @@ data class AppSettings(
     val doubleClickAction: WidgetClickAction = WidgetClickAction.COPY,
     val favorites: List<FavoriteQuote> = emptyList()
 )
-

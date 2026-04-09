@@ -5,15 +5,21 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
+import com.example.onequote.data.model.TextAlignMode
 import com.example.onequote.OneQuoteApp
 import com.example.onequote.R
 import com.example.onequote.data.model.LayoutMode
@@ -121,42 +127,124 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                     val authorVerticalText = quote?.author?.takeIf { it.isNotBlank() }?.let { "— $it" } ?: ""
 
                     // 使用绝对字号配置：不再沿用旧比例语义。
-                    val quoteSp = StyleParsers.clampQuoteFontSp(style.quoteFontSp).toFloat()
-                    val authorSp = StyleParsers.clampAuthorFontSp(style.authorFontSp).toFloat()
+                    val baseQuoteSp = StyleParsers.clampQuoteFontSp(style.quoteFontSp).toFloat()
+                    val baseAuthorSp = StyleParsers.clampAuthorFontSp(style.authorFontSp).toFloat()
 
                     val isVertical = style.layoutMode == LayoutMode.VERTICAL
                     views.setViewVisibility(R.id.horizontalContainer, if (isVertical) View.GONE else View.VISIBLE)
                     views.setViewVisibility(R.id.verticalContainer, if (isVertical) View.VISIBLE else View.GONE)
 
+                    val layoutPlan = resolveTextLayoutPlan(
+                        manager = manager,
+                        widgetId = id,
+                        isVertical = isVertical,
+                        quoteText = quoteText,
+                        hasAuthor = authorText.isNotBlank(),
+                        baseQuoteSp = baseQuoteSp,
+                        baseAuthorSp = baseAuthorSp
+                    )
+
+                    // 背景与圆角映射：使用 bitmap 承载动态圆角背景，避免未保存态影响桌面。
+                    applyBackgroundStyle(context, manager, id, views, style.backgroundRgba, style.cornerRadiusLevel)
+
+                    // 对齐映射：仅横排正文字段生效，行为与应用内预览一致。
+                    if (!isVertical) {
+                        views.setInt(
+                            R.id.widgetQuote,
+                            "setGravity",
+                            alignToGravity(style.textAlignMode)
+                        )
+                        WidgetShadowLayerRenderer.quoteShadowIds.forEach { shadowId ->
+                            views.setInt(shadowId, "setGravity", alignToGravity(style.textAlignMode))
+                        }
+                    }
+
                     views.setTextViewText(R.id.widgetQuote, quoteText)
+                    WidgetShadowLayerRenderer.bindText(views, WidgetShadowLayerRenderer.quoteShadowIds, quoteText)
                     views.setTextViewText(R.id.widgetAuthor, authorText)
+                    WidgetShadowLayerRenderer.bindText(views, WidgetShadowLayerRenderer.authorShadowIds, authorText)
                     views.setTextViewText(R.id.widgetQuoteVertical, quoteText)
+                    WidgetShadowLayerRenderer.bindText(views, WidgetShadowLayerRenderer.quoteVerticalShadowIds, quoteText)
                     views.setTextViewText(R.id.widgetAuthorVertical, if (isVertical) StyleParsers.asVerticalText(authorVerticalText) else authorVerticalText)
+                    WidgetShadowLayerRenderer.bindText(
+                        views,
+                        WidgetShadowLayerRenderer.authorVerticalShadowIds,
+                        if (isVertical) StyleParsers.asVerticalText(authorVerticalText) else authorVerticalText
+                    )
 
                     views.setViewVisibility(R.id.widgetAuthor, if (authorText.isBlank()) View.GONE else View.VISIBLE)
+                    WidgetShadowLayerRenderer.setVisibility(views, WidgetShadowLayerRenderer.authorShadowIds, authorText.isNotBlank())
                     views.setViewVisibility(R.id.widgetAuthorVertical, if (authorVerticalText.isBlank()) View.GONE else View.VISIBLE)
+                    WidgetShadowLayerRenderer.setVisibility(
+                        views,
+                        WidgetShadowLayerRenderer.authorVerticalShadowIds,
+                        authorVerticalText.isNotBlank()
+                    )
 
-                    StyleParsers.parseRgbaOrNull(style.textRgba)?.let {
-                        views.setTextColor(R.id.widgetQuote, it)
-                        views.setTextColor(R.id.widgetQuoteVertical, it)
-                    }
-                    StyleParsers.parseRgbaOrNull(style.authorRgba)?.let {
-                        views.setTextColor(R.id.widgetAuthor, it)
-                        views.setTextColor(R.id.widgetAuthorVertical, it)
-                    }
+                    val quoteColor = StyleParsers.parseRgbaOrNull(style.textRgba) ?: 0xFFFFFFFF.toInt()
+                    val authorColor = StyleParsers.parseRgbaOrNull(style.authorRgba) ?: 0xFFDDDDDD.toInt()
+                    views.setTextColor(R.id.widgetQuote, quoteColor)
+                    views.setTextColor(R.id.widgetQuoteVertical, quoteColor)
+                    views.setTextColor(R.id.widgetAuthor, authorColor)
+                    views.setTextColor(R.id.widgetAuthorVertical, authorColor)
+
+                    val quoteTextHidden = (quoteColor ushr 24) == 0
+                    val hideShadowLayers = quoteTextHidden || style.shadowPreset == com.example.onequote.data.model.ShadowPreset.NONE
 
                     views.setTextViewTextSize(
                         R.id.widgetQuote,
                         TypedValue.COMPLEX_UNIT_SP,
-                        quoteSp
+                        layoutPlan.quoteSp
                     )
+                    WidgetShadowLayerRenderer.bindTextSize(views, WidgetShadowLayerRenderer.quoteShadowIds, layoutPlan.quoteSp)
                     views.setTextViewTextSize(
                         R.id.widgetQuoteVertical,
                         TypedValue.COMPLEX_UNIT_SP,
-                        quoteSp
+                        layoutPlan.quoteSp
                     )
-                    views.setTextViewTextSize(R.id.widgetAuthor, TypedValue.COMPLEX_UNIT_SP, authorSp)
-                    views.setTextViewTextSize(R.id.widgetAuthorVertical, TypedValue.COMPLEX_UNIT_SP, authorSp)
+                    WidgetShadowLayerRenderer.bindTextSize(
+                        views,
+                        WidgetShadowLayerRenderer.quoteVerticalShadowIds,
+                        layoutPlan.quoteSp
+                    )
+                    views.setTextViewTextSize(R.id.widgetAuthor, TypedValue.COMPLEX_UNIT_SP, layoutPlan.authorSp)
+                    WidgetShadowLayerRenderer.bindTextSize(
+                        views,
+                        WidgetShadowLayerRenderer.authorShadowIds,
+                        layoutPlan.authorSp
+                    )
+                    views.setTextViewTextSize(R.id.widgetAuthorVertical, TypedValue.COMPLEX_UNIT_SP, layoutPlan.authorSp)
+                    WidgetShadowLayerRenderer.bindTextSize(
+                        views,
+                        WidgetShadowLayerRenderer.authorVerticalShadowIds,
+                        layoutPlan.authorSp
+                    )
+
+                    views.setInt(R.id.widgetQuote, "setMaxLines", layoutPlan.quoteMaxLines)
+                    views.setInt(R.id.widgetQuoteVertical, "setMaxLines", layoutPlan.quoteMaxLines)
+                    views.setInt(R.id.widgetAuthor, "setMaxLines", layoutPlan.authorMaxLines)
+                    views.setInt(R.id.widgetAuthorVertical, "setMaxLines", layoutPlan.authorMaxLines)
+                    WidgetShadowLayerRenderer.bindMaxLines(views, WidgetShadowLayerRenderer.quoteShadowIds, layoutPlan.quoteMaxLines)
+                    WidgetShadowLayerRenderer.bindMaxLines(
+                        views,
+                        WidgetShadowLayerRenderer.quoteVerticalShadowIds,
+                        layoutPlan.quoteMaxLines
+                    )
+                    WidgetShadowLayerRenderer.bindMaxLines(views, WidgetShadowLayerRenderer.authorShadowIds, layoutPlan.authorMaxLines)
+                    WidgetShadowLayerRenderer.bindMaxLines(
+                        views,
+                        WidgetShadowLayerRenderer.authorVerticalShadowIds,
+                        layoutPlan.authorMaxLines
+                    )
+
+                    WidgetShadowLayerRenderer.apply(
+                        context = context,
+                        views = views,
+                        preset = style.shadowPreset,
+                        hideAll = hideShadowLayers,
+                        quoteVisible = true,
+                        authorVisible = authorText.isNotBlank() || authorVerticalText.isNotBlank()
+                    )
 
                     val clickIntent = Intent(context, OneQuoteWidgetProvider::class.java).apply {
                         action = ACTION_WIDGET_TAP
@@ -435,6 +523,134 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
             AppDebugLogger.log(TAG, "autostart_guide_marked_from_widget_refresh=true")
         }
 
+        /**
+         * 将设置中的文本对齐映射到 TextView gravity，仅用于横排正文。
+         */
+        private fun alignToGravity(mode: TextAlignMode): Int {
+            val horizontal = when (mode) {
+                TextAlignMode.LEFT -> Gravity.START
+                TextAlignMode.CENTER -> Gravity.CENTER_HORIZONTAL
+                TextAlignMode.RIGHT -> Gravity.END
+            }
+            return horizontal or Gravity.CENTER_VERTICAL
+        }
+
+        /**
+         * 文本一次性自适应计划：
+         * - 根据组件可用尺寸和文本长度缩放字号；
+         * - 同步给主文本和阴影层，避免错位。
+         */
+        private fun resolveTextLayoutPlan(
+            manager: AppWidgetManager,
+            widgetId: Int,
+            isVertical: Boolean,
+            quoteText: String,
+            hasAuthor: Boolean,
+            baseQuoteSp: Float,
+            baseAuthorSp: Float
+        ): WidgetTextLayoutPlan {
+            val options = manager.getAppWidgetOptions(widgetId)
+            val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0).coerceAtLeast(180)
+            val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0).coerceAtLeast(110)
+
+            val quoteLength = quoteText.length
+            val compactByLength = when {
+                quoteLength >= 120 -> 4f
+                quoteLength >= 90 -> 3f
+                quoteLength >= 65 -> 2f
+                quoteLength >= 45 -> 1f
+                else -> 0f
+            }
+
+            val compactByArea = when {
+                widthDp <= 220 || heightDp <= 115 -> 2f
+                widthDp <= 260 || heightDp <= 130 -> 1f
+                else -> 0f
+            }
+
+            val verticalPenalty = if (isVertical) 1f else 0f
+            val quoteSp = (baseQuoteSp - compactByLength - compactByArea - verticalPenalty).coerceIn(12f, 25f)
+            val authorSp = (baseAuthorSp - compactByArea).coerceIn(12f, 20f)
+
+            val quoteMaxLines = when {
+                isVertical -> 24
+                heightDp <= 115 -> 4
+                heightDp <= 145 -> 5
+                else -> 6
+            }
+            val authorMaxLines = if (hasAuthor) 2 else 1
+
+            return WidgetTextLayoutPlan(
+                quoteSp = quoteSp,
+                authorSp = authorSp,
+                quoteMaxLines = quoteMaxLines,
+                authorMaxLines = authorMaxLines
+            )
+        }
+
+        /**
+         * 小组件背景映射：
+         * 1) 优先使用圆角位图背景，兼容动态颜色与动态圆角
+         * 2) 若位图失败，降级为 root 纯色背景，确保小组件可见性
+         */
+        private fun applyBackgroundStyle(
+            context: Context,
+            manager: AppWidgetManager,
+            widgetId: Int,
+            views: RemoteViews,
+            backgroundRgba: String,
+            cornerLevel: Int
+        ) {
+            val colorInt = StyleParsers.parseRgbaOrNull(backgroundRgba) ?: return
+            val options = manager.getAppWidgetOptions(widgetId)
+            val minWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+            val minHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+
+            val density = context.resources.displayMetrics.density
+            val widthPx = (minWidthDp * density).toInt().coerceAtLeast((220 * density).toInt())
+            val heightPx = (minHeightDp * density).toInt().coerceAtLeast((110 * density).toInt())
+            val radiusPx = StyleParsers.levelToCornerDp(cornerLevel) * density
+
+            runCatching {
+                val bitmap = buildRoundedRectBitmap(widthPx, heightPx, colorInt, radiusPx)
+                views.setImageViewBitmap(R.id.widgetBackground, bitmap)
+                views.setViewVisibility(R.id.widgetBackground, View.VISIBLE)
+                views.setInt(R.id.widgetRoot, "setBackgroundColor", 0x00000000)
+            }.onFailure {
+                AppDebugLogger.log(TAG, "apply_background_bitmap_failed id=$widgetId error=${it.message}")
+                views.setViewVisibility(R.id.widgetBackground, View.GONE)
+                views.setInt(R.id.widgetRoot, "setBackgroundColor", colorInt)
+            }
+        }
+
+        /** 构建圆角纯色位图，供 RemoteViews 背景渲染。 */
+        private fun buildRoundedRectBitmap(
+            widthPx: Int,
+            heightPx: Int,
+            colorInt: Int,
+            radiusPx: Float
+        ): Bitmap {
+            val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = colorInt
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(
+                RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()),
+                radiusPx,
+                radiusPx,
+                paint
+            )
+            return bitmap
+        }
+
+        private data class WidgetTextLayoutPlan(
+            val quoteSp: Float,
+            val authorSp: Float,
+            val quoteMaxLines: Int,
+            val authorMaxLines: Int
+        )
+
     }
 }
-

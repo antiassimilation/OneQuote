@@ -295,7 +295,15 @@ class QuoteRepository(
 
             val shuffled = enabledSources.shuffled()
             var lastError: Throwable = IllegalStateException("refresh_failed")
+            var attemptedCount = 0
             for (source in shuffled) {
+                // 实时启用态再校验：避免刷新循环期间来源被关闭后仍继续请求。
+                if (!isSourceEnabledForRefresh(source.id)) {
+                    AppDebugLogger.log(logTag, "refresh_source_skipped_disabled sourceId=${source.id} name=${source.typeName}")
+                    continue
+                }
+
+                attemptedCount += 1
                 val result = apiClient.fetch(source)
                 if (result.isSuccess) {
                     val quote = result.getOrThrow()
@@ -331,11 +339,31 @@ class QuoteRepository(
                 }
             }
 
+            if (attemptedCount == 0) {
+                AppDebugLogger.log(logTag, "refresh_failed reason=no_enabled_source_after_recheck")
+                return Result.failure(IllegalStateException("no_enabled_source"))
+            }
+
             AppDebugLogger.log(logTag, "refresh_failed final=${lastError.message}")
             return Result.failure(lastError)
         } finally {
             leaveRefreshGate()
         }
+    }
+
+    /**
+     * 刷新循环中的实时启用态检查：
+     * - 兼容并发场景下的手动禁用/内置分类清空；
+     * - 仅做本地配置读取，不引入额外网络请求。
+     */
+    private suspend fun isSourceEnabledForRefresh(sourceId: String): Boolean {
+        val latest = store.getSettings()
+        val source = latest.sources.firstOrNull { it.id == sourceId } ?: return false
+        if (!source.enabled) return false
+        if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty()) {
+            return false
+        }
+        return true
     }
 
     /**
@@ -424,4 +452,3 @@ data class CsvImportSummary(
     val invalidCount: Int,
     val unsupportedFile: Boolean = false
 )
-

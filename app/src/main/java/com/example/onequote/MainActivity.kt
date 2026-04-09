@@ -21,8 +21,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -80,6 +83,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.onequote.data.model.FavoriteQuote
 import com.example.onequote.data.model.BuiltinSources
 import com.example.onequote.data.model.LayoutMode
+import com.example.onequote.data.model.QuoteContent
 import com.example.onequote.data.model.ShadowPreset
 import com.example.onequote.data.model.TextAlignMode
 import com.example.onequote.data.model.WidgetClickAction
@@ -235,7 +239,6 @@ private fun OnboardingWelcomeScreen(
 ) {
     val context = LocalContext.current
     var autoStartVisited by remember { mutableStateOf(false) }
-    var storageVisited by remember { mutableStateOf(false) }
     var showImpactDialog by remember { mutableStateOf(false) }
     var missingImpacts by remember { mutableStateOf(emptyList<String>()) }
 
@@ -245,10 +248,6 @@ private fun OnboardingWelcomeScreen(
     val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         autoStartVisited = true
         onToast("自启动设置页已返回")
-    }
-    val storageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        storageVisited = true
-        onToast("应用权限页已返回")
     }
 
     if (showImpactDialog) {
@@ -290,11 +289,6 @@ private fun OnboardingWelcomeScreen(
                 onToast("用途：提升后台定时刷新可达性")
                 launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
             }
-            Spacer(Modifier.height(10.dp))
-            FullWidthButton("储存权限") {
-                onToast("用途：用于通过系统文件选择器导入/导出CSV")
-                launchAppPermissionSettings(context, storageLauncher::launch, onToast)
-            }
 
             Spacer(Modifier.height(20.dp))
             FullWidthButton("下一步") {
@@ -304,9 +298,6 @@ private fun OnboardingWelcomeScreen(
                     }
                     if (!autoStartVisited) {
                         add("未完成自启动设置确认：后台刷新稳定性可能下降")
-                    }
-                    if (!storageVisited) {
-                        add("未完成存储访问设置确认：CSV导入/导出可能受系统限制")
                     }
                 }
                 if (impacts.isEmpty()) {
@@ -651,6 +642,7 @@ private fun ApiSettingsScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun BeautySettingsScreen(
     repository: QuoteRepository,
     onToast: (String) -> Unit
@@ -665,23 +657,46 @@ private fun BeautySettingsScreen(
 
     var fontRgb by remember { mutableStateOf("255.255.255") }
     var fontAlpha by remember { mutableStateOf("255") }
-    var quoteFontSpText by remember { mutableStateOf("12") }
+    var quoteFontSpText by remember { mutableStateOf("16") }
 
     var authorRgb by remember { mutableStateOf("220.220.220") }
     var authorAlpha by remember { mutableStateOf("255") }
-    var authorFontSpText by remember { mutableStateOf("6") }
+    var authorFontSpText by remember { mutableStateOf("12") }
 
     var shadowPreset by remember { mutableStateOf(ShadowPreset.NORMAL) }
     var layoutMode by remember { mutableStateOf(LayoutMode.HORIZONTAL) }
     var textAlignMode by remember { mutableStateOf(TextAlignMode.LEFT) }
+    var previewUseEnglish by remember { mutableStateOf(false) }
+
+    val sampleQuote = remember(previewUseEnglish) {
+        if (previewUseEnglish) {
+            QuoteContent(
+                text = "Forgive others often, but rarely yourself",
+                author = "None",
+                sourceType = "示例预览",
+                sourceTypeCode = "sample_en",
+                sourceFrom = "beauty_preview"
+            )
+        } else {
+            QuoteContent(
+                text = "举头望明月，低头思故乡",
+                author = "李白《静夜思》",
+                sourceType = "示例预览",
+                sourceTypeCode = "sample_zh",
+                sourceFrom = "beauty_preview"
+            )
+        }
+    }
 
     var previewModel by remember {
         mutableStateOf(
             BeautyPreviewModel(
+                backgroundColor = Color(0x8C000000),
+                cornerRadiusDp = 12f,
                 quoteColor = Color.White,
                 authorColor = Color(0xFFDDDDDD),
-                quoteFontSp = 12f,
-                authorFontSp = 6f,
+                quoteFontSp = 16f,
+                authorFontSp = 12f,
                 shadowPreset = ShadowPreset.NORMAL,
                 layoutMode = LayoutMode.HORIZONTAL,
                 textAlignMode = TextAlignMode.LEFT
@@ -713,6 +728,9 @@ private fun BeautySettingsScreen(
     }
 
     LaunchedEffect(
+        widgetRgb,
+        widgetAlpha,
+        cornerLevel,
         fontRgb,
         fontAlpha,
         quoteFontSpText,
@@ -737,10 +755,16 @@ private fun BeautySettingsScreen(
         val authorColor = StyleParsers.parseRgbaOrNull(toRgba(authorRgb, authorAlpha) ?: "220.220.220.255")
             ?.let { Color(it) }
             ?: Color(0xFFDDDDDD)
-        val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 12).toFloat()
-        val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 6).toFloat()
+        val backgroundColor = StyleParsers.parseRgbaOrNull(toRgba(widgetRgb, widgetAlpha) ?: "0.0.0.140")
+            ?.let { Color(it) }
+            ?: Color(0x8C000000)
+        val cornerRadiusDp = StyleParsers.levelToCornerDp(cornerLevel.toInt())
+        val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 16).toFloat()
+        val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 12).toFloat()
 
         previewModel = BeautyPreviewModel(
+            backgroundColor = backgroundColor,
+            cornerRadiusDp = cornerRadiusDp,
             quoteColor = quoteColor,
             authorColor = authorColor,
             quoteFontSp = quoteFontSp,
@@ -788,7 +812,7 @@ private fun BeautySettingsScreen(
             OutlinedTextField(
                 value = quoteFontSpText,
                 onValueChange = { quoteFontSpText = it.filter(Char::isDigit) },
-                label = { Text("字体大小(6sp-20sp，默认12)") },
+                label = { Text("字体大小(12sp-25sp，默认16)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -810,7 +834,7 @@ private fun BeautySettingsScreen(
             OutlinedTextField(
                 value = authorFontSpText,
                 onValueChange = { authorFontSpText = it.filter(Char::isDigit) },
-                label = { Text("作者字体大小(3sp-10sp)") },
+                label = { Text("作者字体大小(12sp-20sp，默认12)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -853,15 +877,36 @@ private fun BeautySettingsScreen(
             }
 
             BeautyPreviewCard(
-                quote = "举头望明月，低头思故乡",
-                author = "李白《静夜思》",
+                quote = sampleQuote.text,
+                author = sampleQuote.author.orEmpty(),
                 layoutMode = previewModel.layoutMode,
                 textAlignMode = previewModel.textAlignMode,
+                backgroundColor = previewModel.backgroundColor,
+                cornerRadiusDp = previewModel.cornerRadiusDp,
                 quoteColor = previewModel.quoteColor,
                 authorColor = previewModel.authorColor,
                 quoteFontSp = previewModel.quoteFontSp,
                 authorFontSp = previewModel.authorFontSp,
-                shadowPreset = previewModel.shadowPreset
+                shadowPreset = previewModel.shadowPreset,
+                modifier = Modifier.combinedClickable(
+                    onClick = { previewUseEnglish = !previewUseEnglish },
+                    onLongClick = {
+                        val quoteForWidget = sampleQuote.copy(updatedAtMillis = System.currentTimeMillis())
+                        scope.launch(Dispatchers.IO) {
+                            val current = repository.getSettings()
+                            repository.saveSettings(current.copy(lastQuote = quoteForWidget))
+                            OneQuoteWidgetProvider.refreshAll(context)
+                            withContext(Dispatchers.Main) {
+                                onToast("已将当前示例推送到桌面小组件")
+                            }
+                        }
+                    }
+                )
+            )
+            Text(
+                text = "点击示例切换中英文；长按示例可强制推送到桌面小组件",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             FullWidthButton("保存配置") {
@@ -873,8 +918,8 @@ private fun BeautySettingsScreen(
                     return@FullWidthButton
                 }
 
-                val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 12)
-                val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 6)
+                val quoteFontSp = StyleParsers.clampQuoteFontSp(quoteFontSpText.toIntOrNull() ?: 16)
+                val authorFontSp = StyleParsers.clampAuthorFontSp(authorFontSpText.toIntOrNull() ?: 12)
 
                 scope.launch(Dispatchers.IO) {
                     val current = repository.getSettings()
@@ -925,9 +970,6 @@ private fun AppSettingsScreen(
     }
     val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         onToast("自启动设置页已返回")
-    }
-    val storageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast("应用权限页已返回")
     }
     val exportLogLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         val logText = pendingExportLog
@@ -982,10 +1024,6 @@ private fun AppSettingsScreen(
             FullWidthButton("自启动") {
                 onToast("用途：提升后台刷新可达性")
                 launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
-            }
-            FullWidthButton("储存权限") {
-                onToast("用途：通过系统文件选择器导入导出CSV")
-                launchAppPermissionSettings(context, storageLauncher::launch, onToast)
             }
         }
     }
@@ -1047,11 +1085,14 @@ private fun BeautyPreviewCard(
     author: String,
     layoutMode: LayoutMode,
     textAlignMode: TextAlignMode,
+    backgroundColor: Color,
+    cornerRadiusDp: Float,
     quoteColor: Color,
     authorColor: Color,
     quoteFontSp: Float,
     authorFontSp: Float,
-    shadowPreset: ShadowPreset
+    shadowPreset: ShadowPreset,
+    modifier: Modifier = Modifier
 ) {
     val quoteDisplay = if (layoutMode == LayoutMode.VERTICAL) StyleParsers.asVerticalText(quote) else quote
     val shadowSpec = StyleParsers.shadowSpec(shadowPreset)
@@ -1069,11 +1110,14 @@ private fun BeautyPreviewCard(
         TextAlignMode.CENTER -> TextAlign.Center
         TextAlignMode.RIGHT -> TextAlign.End
     }
-    Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+    Card(
+        shape = RoundedCornerShape(cornerRadiusDp.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        modifier = modifier.fillMaxWidth()
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(14.dp)
         ) {
             if (layoutMode == LayoutMode.VERTICAL) {
@@ -1180,6 +1224,8 @@ private fun ShadowPresetSelector(
 }
 
 private data class BeautyPreviewModel(
+    val backgroundColor: Color,
+    val cornerRadiusDp: Float,
     val quoteColor: Color,
     val authorColor: Color,
     val quoteFontSp: Float,
@@ -1341,4 +1387,3 @@ private fun PreviewHomeCard() {
         HomeQuoteCard("举头望明月，低头思故乡", "李白《静夜思》")
     }
 }
-
