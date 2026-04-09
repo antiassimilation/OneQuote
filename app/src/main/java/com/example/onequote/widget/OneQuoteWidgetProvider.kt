@@ -13,7 +13,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -123,14 +122,14 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                         style.layoutMode == LayoutMode.VERTICAL -> StyleParsers.asVerticalText(quote.text)
                         else -> quote.text
                     }
+                    val isVertical = style.layoutMode == LayoutMode.VERTICAL
                     val authorText = quote?.author?.takeIf { it.isNotBlank() }?.let { "— $it" } ?: ""
-                    val authorVerticalText = quote?.author?.takeIf { it.isNotBlank() }?.let { "— $it" } ?: ""
+                    val authorVerticalDisplay = if (isVertical) StyleParsers.asVerticalText(authorText) else authorText
 
                     // 使用绝对字号配置：不再沿用旧比例语义。
                     val baseQuoteSp = StyleParsers.clampQuoteFontSp(style.quoteFontSp).toFloat()
                     val baseAuthorSp = StyleParsers.clampAuthorFontSp(style.authorFontSp).toFloat()
 
-                    val isVertical = style.layoutMode == LayoutMode.VERTICAL
                     views.setViewVisibility(R.id.horizontalContainer, if (isVertical) View.GONE else View.VISIBLE)
                     views.setViewVisibility(R.id.verticalContainer, if (isVertical) View.VISIBLE else View.GONE)
 
@@ -149,13 +148,14 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
 
                     // 对齐映射：仅横排正文字段生效，行为与应用内预览一致。
                     if (!isVertical) {
+                        val horizontalGravity = alignToGravity(style.textAlignMode)
                         views.setInt(
                             R.id.widgetQuote,
                             "setGravity",
-                            alignToGravity(style.textAlignMode)
+                            horizontalGravity
                         )
                         WidgetShadowLayerRenderer.quoteShadowIds.forEach { shadowId ->
-                            views.setInt(shadowId, "setGravity", alignToGravity(style.textAlignMode))
+                            views.setInt(shadowId, "setGravity", horizontalGravity)
                         }
                     }
 
@@ -165,20 +165,20 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                     WidgetShadowLayerRenderer.bindText(views, WidgetShadowLayerRenderer.authorShadowIds, authorText)
                     views.setTextViewText(R.id.widgetQuoteVertical, quoteText)
                     WidgetShadowLayerRenderer.bindText(views, WidgetShadowLayerRenderer.quoteVerticalShadowIds, quoteText)
-                    views.setTextViewText(R.id.widgetAuthorVertical, if (isVertical) StyleParsers.asVerticalText(authorVerticalText) else authorVerticalText)
+                    views.setTextViewText(R.id.widgetAuthorVertical, authorVerticalDisplay)
                     WidgetShadowLayerRenderer.bindText(
                         views,
                         WidgetShadowLayerRenderer.authorVerticalShadowIds,
-                        if (isVertical) StyleParsers.asVerticalText(authorVerticalText) else authorVerticalText
+                        authorVerticalDisplay
                     )
 
                     views.setViewVisibility(R.id.widgetAuthor, if (authorText.isBlank()) View.GONE else View.VISIBLE)
                     WidgetShadowLayerRenderer.setVisibility(views, WidgetShadowLayerRenderer.authorShadowIds, authorText.isNotBlank())
-                    views.setViewVisibility(R.id.widgetAuthorVertical, if (authorVerticalText.isBlank()) View.GONE else View.VISIBLE)
+                    views.setViewVisibility(R.id.widgetAuthorVertical, if (authorText.isBlank()) View.GONE else View.VISIBLE)
                     WidgetShadowLayerRenderer.setVisibility(
                         views,
                         WidgetShadowLayerRenderer.authorVerticalShadowIds,
-                        authorVerticalText.isNotBlank()
+                        authorText.isNotBlank()
                     )
 
                     val quoteColor = StyleParsers.parseRgbaOrNull(style.textRgba) ?: 0xFFFFFFFF.toInt()
@@ -243,7 +243,7 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                         preset = style.shadowPreset,
                         hideAll = hideShadowLayers,
                         quoteVisible = true,
-                        authorVisible = authorText.isNotBlank() || authorVerticalText.isNotBlank()
+                        authorVisible = authorText.isNotBlank()
                     )
 
                     val clickIntent = Intent(context, OneQuoteWidgetProvider::class.java).apply {
@@ -285,10 +285,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                 Triple(lastTapEventTimeMs, lastTapWidgetId, lastTapToken)
             }
             val deltaFromLastTap = now - prevTapAt
-            Log.d(
-                TAG,
-                "tap_received widgetId=$widgetId now=$now lastTap=$prevTapAt delta=$deltaFromLastTap window=$DOUBLE_TAP_WINDOW_MS lastToken=$prevToken lastWidget=$prevWidgetId single=${settings.singleClickAction} double=${settings.doubleClickAction}"
-            )
             AppDebugLogger.log(
                 TAG,
                 "tap_received widgetId=$widgetId delta=$deltaFromLastTap window=$DOUBLE_TAP_WINDOW_MS single=${settings.singleClickAction} double=${settings.doubleClickAction}"
@@ -296,7 +292,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
 
             val isDoubleTap = (deltaFromLastTap in 1..DOUBLE_TAP_WINDOW_MS) && prevWidgetId == widgetId
             if (isDoubleTap) {
-                Log.d(TAG, "tap_classified=DOUBLE widgetId=$widgetId")
                 AppDebugLogger.log(TAG, "tap_classified=DOUBLE widgetId=$widgetId")
                 synchronized(tapLock) {
                     pendingSingleJob?.cancel()
@@ -312,7 +307,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
 
             if (prevTapAt > 0L && prevWidgetId == widgetId) {
                 val lateBy = (deltaFromLastTap - DOUBLE_TAP_WINDOW_MS).coerceAtLeast(0L)
-                Log.d(TAG, "tap_not_double widgetId=$widgetId delta=$deltaFromLastTap lateBy=$lateBy")
                 AppDebugLogger.log(TAG, "tap_not_double widgetId=$widgetId delta=$deltaFromLastTap lateBy=$lateBy")
             }
 
@@ -323,7 +317,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                 lastTapWidgetId = widgetId
                 lastTapToken = tapToken
             }
-            Log.d(TAG, "tap_classified=PENDING_SINGLE widgetId=$widgetId token=$tapToken")
             AppDebugLogger.log(TAG, "tap_classified=PENDING_SINGLE widgetId=$widgetId token=$tapToken")
 
             val singleJob = tapScope.launch {
@@ -333,10 +326,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                     Pair(lastTapToken, lastTapWidgetId)
                 }
                 val shouldRunSingle = latestToken == tapToken && latestWidget == widgetId
-                Log.d(
-                    TAG,
-                    "single_commit_check widgetId=$widgetId token=$tapToken shouldRun=$shouldRunSingle latestToken=$latestToken latestWidget=$latestWidget"
-                )
                 AppDebugLogger.log(
                     TAG,
                     "single_commit_check widgetId=$widgetId token=$tapToken shouldRun=$shouldRunSingle latestToken=$latestToken latestWidget=$latestWidget"
@@ -352,7 +341,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                     }
                 }
                 val latestSettings = repo.getSettings()
-                Log.d(TAG, "tap_classified=SINGLE widgetId=$widgetId action=${latestSettings.singleClickAction}")
                 AppDebugLogger.log(TAG, "tap_classified=SINGLE widgetId=$widgetId action=${latestSettings.singleClickAction}")
                 val shouldRefresh = runWidgetAction(appContext, latestSettings.singleClickAction, repo)
                 if (shouldRefresh) refreshAll(appContext)
@@ -377,7 +365,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
                 val last = synchronized(actionLock) { lastAction }
                 val lastAt = synchronized(actionLock) { lastActionAtElapsedMs }
                 val delta = (nowElapsed - lastAt).coerceAtLeast(0L)
-                Log.d(TAG, "run_widget_action_blocked reason=action_mutex action=$action last=$last delta=$delta")
                 AppDebugLogger.log(TAG, "run_widget_action_blocked reason=action_mutex action=$action last=$last delta=$delta")
                 return false
             }
@@ -386,13 +373,11 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
             if (action == WidgetClickAction.REFRESH && shouldBlockRefreshDispatch(nowElapsed)) {
                 val lastRefreshAt = synchronized(actionLock) { lastRefreshDispatchAtElapsedMs }
                 val delta = (nowElapsed - lastRefreshAt).coerceAtLeast(0L)
-                Log.d(TAG, "run_widget_action_blocked reason=refresh_throttle action=$action delta=$delta")
                 AppDebugLogger.log(TAG, "run_widget_action_blocked reason=refresh_throttle action=$action delta=$delta")
                 return false
             }
 
             markActionDispatched(action, nowElapsed)
-            Log.d(TAG, "run_widget_action action=$action")
             AppDebugLogger.log(TAG, "run_widget_action action=$action")
             return when (action) {
                 WidgetClickAction.REFRESH -> runRefreshAction(context, repo)
@@ -416,7 +401,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
             val now = System.currentTimeMillis()
             val settings = repo.getSettings()
             val remain = StyleParsers.cooldownRemainSeconds(settings.lastManualRefreshAtMillis, now)
-            Log.d(TAG, "run_refresh now=$now lastManual=${settings.lastManualRefreshAtMillis} remain=$remain")
             AppDebugLogger.log(TAG, "run_refresh remain=$remain")
             if (remain > 0) {
                 showToastMain(context, "请在${remain}秒后重试")
@@ -453,7 +437,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
             repo: com.example.onequote.data.repo.QuoteRepository
         ) {
             val result = repo.addFavoriteFromLastQuote()
-            Log.d(TAG, "run_favorite success=${result.isSuccess}")
             AppDebugLogger.log(TAG, "run_favorite success=${result.isSuccess}")
             if (result.isSuccess) {
                 showToastMain(context, "已加入收藏", Toast.LENGTH_LONG)

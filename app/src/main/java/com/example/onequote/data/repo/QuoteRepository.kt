@@ -22,8 +22,7 @@ class QuoteRepository(
 
     companion object {
         /**
-         * 全局刷新最小间隔（毫秒）。
-         * 统一约束小组件点击、应用内手动刷新、Worker 自动刷新，避免短时高频请求。
+         * 全局刷新最小间隔（毫秒），统一约束小组件点击、应用内手动刷新与 Worker 自动刷新。
          */
         private const val GLOBAL_REFRESH_MIN_INTERVAL_MS = 2500L
     }
@@ -297,7 +296,7 @@ class QuoteRepository(
             var lastError: Throwable = IllegalStateException("refresh_failed")
             var attemptedCount = 0
             for (source in shuffled) {
-                // 实时启用态再校验：避免刷新循环期间来源被关闭后仍继续请求。
+                // 实时启用态再校验，避免刷新循环期间来源被关闭后仍继续请求。
                 if (!isSourceEnabledForRefresh(source.id)) {
                     AppDebugLogger.log(logTag, "refresh_source_skipped_disabled sourceId=${source.id} name=${source.typeName}")
                     continue
@@ -353,8 +352,7 @@ class QuoteRepository(
 
     /**
      * 刷新循环中的实时启用态检查：
-     * - 兼容并发场景下的手动禁用/内置分类清空；
-     * - 仅做本地配置读取，不引入额外网络请求。
+     * 兼容并发场景下的手动禁用/内置分类清空，仅做本地配置读取。
      */
     private suspend fun isSourceEnabledForRefresh(sourceId: String): Boolean {
         val latest = store.getSettings()
@@ -368,8 +366,8 @@ class QuoteRepository(
 
     /**
      * 进入刷新闸门：
-     * - 已有刷新在执行则拒绝（避免并发请求）
-     * - 与上次刷新启动间隔过短则拒绝（避免高频请求）
+     * - 已有刷新在执行则拒绝（避免并发请求）；
+     * - 与上次刷新启动间隔过短则拒绝（避免高频请求）。
      */
     private fun enterRefreshGate(nowMillis: Long): String? {
         synchronized(refreshGateLock) {
@@ -401,7 +399,7 @@ class QuoteRepository(
         return "\"$escaped\""
     }
 
-    /** 严格CSV解析：支持双引号、换行与逗号转义；格式异常时直接失败。 */
+    /** 严格 CSV 解析：支持双引号、换行与逗号转义，格式异常时直接失败。 */
     private fun parseCsvRows(rawCsv: String): Result<List<List<String>>> {
         val rows = mutableListOf<List<String>>()
         val row = mutableListOf<String>()

@@ -1,6 +1,5 @@
 package com.example.onequote.data.util
 
-import android.content.Context
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,10 +34,6 @@ object AppDebugLogger {
     @Synchronized
     fun clear() {
         inMemory.clear()
-    }
-
-    fun appMeta(context: Context): String {
-        return "package=${context.packageName}"
     }
 }
 

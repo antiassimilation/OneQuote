@@ -1,6 +1,4 @@
 <resources>
     <string name="app_name">OneQuote</string>
     <string name="widget_description">在桌面展示一句话并支持手动刷新</string>
-    <string name="source_test_failed">首次测试失败：该来源不可用</string>
-    <string name="source_runtime_disabled">运行失败已停用，请手动重新勾选启用</string>
 </resources>

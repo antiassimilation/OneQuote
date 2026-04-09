@@ -22,28 +22,12 @@ object StyleParsers {
     fun clampAuthorFontSp(input: Int): Int = input.coerceIn(12, 20)
 
     /**
-     * 将百分比映射到基础字号（sp）。
-     * 约定：每 +100% 字号翻倍。
-     * - 0% -> 9sp
-     * - 100% -> 18sp
-     * - 200% -> 36sp
-     */
-    fun percentToBaseTextSp(percent: Int): Float {
-        val scaleSteps = percent / 100f
-        return 9f * Math.pow(2.0, scaleSteps.toDouble()).toFloat()
-    }
-
-    /**
-     * 阴影预设采样：
-     * None < Normal < Bold < Bold-Light（最深）
+     * 阴影预设参数。
+     * 供 Compose 预览卡片与小组件保持一致的视觉梯度。
      */
     fun shadowSpec(preset: ShadowPreset): ShadowSpec {
         return when (preset) {
             ShadowPreset.NONE -> ShadowSpec(radius = 0f, dx = 0f, dy = 0f, alpha = 0f)
-            // 需求调整：
-            // 1) Normal 强度提升为原 Bold
-            // 2) Bold 强度提升为原 Bold-Light
-            // 3) Bold-Light 进一步增强
             ShadowPreset.NORMAL -> ShadowSpec(radius = 2.4f, dx = 1.1f, dy = 1.1f, alpha = 0.56f)
             ShadowPreset.BOLD -> ShadowSpec(radius = 3.1f, dx = 1.4f, dy = 1.4f, alpha = 0.74f)
             ShadowPreset.BOLD_LIGHT -> ShadowSpec(radius = 3.8f, dx = 1.8f, dy = 1.8f, alpha = 0.88f)
@@ -54,9 +38,11 @@ object StyleParsers {
         return (level.coerceIn(0, 10) * 3f)
     }
 
+    /** 将普通文本按字符拆为竖排渲染文本。 */
     fun asVerticalText(content: String): String =
         content.toCharArray().joinToString("\n")
 
+    /** 计算手动刷新剩余冷却秒数，结果下限为 0。 */
     fun cooldownRemainSeconds(lastAt: Long, now: Long, cooldownMs: Long = 5_000L): Int {
         val remain = (cooldownMs - (now - lastAt)).coerceAtLeast(0L)
         return (remain / 1000.0).roundToInt()

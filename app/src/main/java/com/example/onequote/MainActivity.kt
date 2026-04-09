@@ -1338,18 +1338,6 @@ private fun launchAutoStartSettings(
         .onFailure { onToast("打开自启动设置失败") }
 }
 
-private fun launchAppPermissionSettings(
-    context: Context,
-    launch: (Intent) -> Unit,
-    onToast: (String) -> Unit
-) {
-    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.parse("package:${context.packageName}")
-    }
-    runCatching { launch(intent) }
-        .onFailure { onToast("无法打开应用权限设置") }
-}
-
 private fun canOpenDocument(context: Context): Boolean {
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)

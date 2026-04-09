@@ -10,7 +10,7 @@ import com.example.onequote.data.model.ShadowPreset
 
 /**
  * 小组件阴影层渲染器：
- * - 统一管理四层阴影 TextView 的映射与绘制参数；
+ * - 统一管理多层阴影 TextView 的映射与绘制参数；
  * - 统一处理层级偏移、透明度递减与可见性。
  */
 object WidgetShadowLayerRenderer {
@@ -74,11 +74,7 @@ object WidgetShadowLayerRenderer {
         ids.forEach { views.setViewVisibility(it, target) }
     }
 
-    /**
-     * 应用四层阴影样式。
-     *
-     * @param hideAll 当正文透明度为0时，强制隐藏所有阴影层。
-     */
+    /** 应用阴影层样式；当正文完全透明时强制隐藏所有阴影层。 */
     fun apply(
         context: Context,
         views: RemoteViews,
@@ -124,10 +120,6 @@ object WidgetShadowLayerRenderer {
                 alphaDescending = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
             )
 
-            // 新需求对齐（仅小组件模拟阴影）：
-            // - Normal 进一步减弱
-            // - Bold = 当前 Normal 的强度
-            // - Bold-Light = 当前 Bold 的强度
             ShadowPreset.NORMAL -> LayerProfile(
                 enabledLayers = 3,
                 alphaDescending = floatArrayOf(0.48f, 0.40f, 0.32f, 0f, 0f, 0f)
