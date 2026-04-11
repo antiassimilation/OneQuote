@@ -21,14 +21,24 @@ data class QuoteSourceConfig(
     val typeName: String,
     val url: String,
     val appKey: String,
+    /** 来源类型：远程 API 或本地收藏池。 */
+    val sourceKind: QuoteSourceKind = QuoteSourceKind.REMOTE,
     /** 是否为内置来源。 */
     val isBuiltin: Boolean = false,
     /** 内置来源的类型筛选（例如 hitokoto 的 a~l），为空表示不使用该来源。 */
     val selectedTypeCodes: List<String> = emptyList(),
+    /** 来源权重，值越大越容易在多来源随机时被抽中。 */
+    val weight: Int = 1,
     val enabled: Boolean = false,
     val tempDisabled: Boolean = false,
     val failStreak: Int = 0
 )
+
+@Serializable
+enum class QuoteSourceKind {
+    REMOTE,
+    FAVORITES
+}
 
 @Serializable
 data class WidgetStyleConfig(
@@ -87,6 +97,9 @@ object BuiltinSources {
     const val HITOKOTO_ID = "builtin_hitokoto"
     const val HITOKOTO_NAME = "一言 hitokoto"
     const val HITOKOTO_URL = "https://v1.hitokoto.cn/"
+    const val FAVORITES_ID = "builtin_favorites"
+    const val FAVORITES_NAME = "收藏"
+    const val FAVORITES_URL = "local://favorites"
 
     val hitokotoTypeOptions: List<Pair<String, String>> = listOf(
         "a" to "动画",
@@ -111,9 +124,27 @@ object BuiltinSources {
             typeName = HITOKOTO_NAME,
             url = HITOKOTO_URL,
             appKey = "",
+            sourceKind = QuoteSourceKind.REMOTE,
             isBuiltin = true,
             selectedTypeCodes = allHitokotoTypeCodes,
+            weight = 1,
             enabled = true,
+            tempDisabled = false,
+            failStreak = 0
+        )
+    }
+
+    fun createFavoritesSource(): QuoteSourceConfig {
+        return QuoteSourceConfig(
+            id = FAVORITES_ID,
+            typeName = FAVORITES_NAME,
+            url = FAVORITES_URL,
+            appKey = "",
+            sourceKind = QuoteSourceKind.FAVORITES,
+            isBuiltin = true,
+            selectedTypeCodes = emptyList(),
+            weight = 1,
+            enabled = false,
             tempDisabled = false,
             failStreak = 0
         )
@@ -122,7 +153,10 @@ object BuiltinSources {
 
 @Serializable
 data class AppSettings(
-    val sources: List<QuoteSourceConfig> = listOf(BuiltinSources.createDefaultHitokotoSource()),
+    val sources: List<QuoteSourceConfig> = listOf(
+        BuiltinSources.createDefaultHitokotoSource(),
+        BuiltinSources.createFavoritesSource()
+    ),
     val style: WidgetStyleConfig = WidgetStyleConfig(),
     val autoRefreshMinutes: Int = 30,
     val lastQuote: QuoteContent? = null,

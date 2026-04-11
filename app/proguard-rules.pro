@@ -1,5 +1,24 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
+# Keep WorkManager / Room generated implementation classes for release startup.
+# Crash symptom:
+# `Unable to get provider androidx.startup.InitializationProvider`
+# caused by `NoSuchMethodException: androidx.work.impl.WorkDatabase_Impl.<init>[]`
+
+# WorkManager relies on Room-generated implementation classes such as
+# `androidx.work.impl.WorkDatabase_Impl` during startup initialization.
+-keep class androidx.work.impl.WorkDatabase_Impl {
+    <init>();
+}
+
+# Keep Room database implementations and their constructors.
+-keep class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+-keep class **_Impl {
+    <init>();
+}
+
+# Keep Room-generated companions used by the implementation.
+-keep class **_Impl$* { *; }
 # proguardFiles setting in build.gradle.
 #
 # For more details, see

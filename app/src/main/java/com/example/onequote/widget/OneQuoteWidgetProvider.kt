@@ -24,6 +24,7 @@ import com.example.onequote.R
 import com.example.onequote.data.model.LayoutMode
 import com.example.onequote.data.model.WidgetClickAction
 import com.example.onequote.data.util.AppDebugLogger
+import com.example.onequote.data.util.RuntimeFlagStore
 import com.example.onequote.data.util.StyleParsers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,8 +80,6 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
         private const val DOUBLE_TAP_WINDOW_MS = 350L
         private const val SINGLE_COMMIT_GRACE_MS = 80L
         private const val INVALID_WIDGET_ID = -1
-        private const val RUNTIME_FLAGS_PREFS = "onequote_runtime_flags"
-        private const val NEED_AUTOSTART_GUIDE_AFTER_WIDGET_REFRESH = "need_autostart_guide_after_widget_refresh"
         // 动作互斥窗口：避免边界时序下“单击动作 + 双击动作”几乎同时执行。
         private const val ACTION_MUTEX_WINDOW_MS = 260L
         // 刷新派发节流：避免短时间重复触发刷新，降低API高频调用风险。
@@ -500,9 +499,7 @@ class OneQuoteWidgetProvider : AppWidgetProvider() {
          * 注意：小组件广播场景不应直接拉起权限设置页，避免后台拉起限制与系统拦截。
          */
         private fun markNeedAutoStartGuide(context: Context) {
-            val prefs = context.applicationContext.getSharedPreferences(RUNTIME_FLAGS_PREFS, Context.MODE_PRIVATE)
-            if (prefs.getBoolean(NEED_AUTOSTART_GUIDE_AFTER_WIDGET_REFRESH, false)) return
-            prefs.edit().putBoolean(NEED_AUTOSTART_GUIDE_AFTER_WIDGET_REFRESH, true).apply()
+            RuntimeFlagStore.markNeedAutoStartGuide(context)
             AppDebugLogger.log(TAG, "autostart_guide_marked_from_widget_refresh=true")
         }
 

@@ -1,5 +1,6 @@
 package com.example.onequote.data.util
 
+import com.example.onequote.BuildConfig
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -14,12 +15,20 @@ object AppDebugLogger {
     private val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
     private val inMemory = ArrayDeque<String>()
 
-    @Synchronized
+    fun log(tag: String, message: () -> String) {
+        if (!BuildConfig.DEBUG) return
+        logInternal(tag, message())
+    }
+
     fun log(tag: String, message: String) {
+        if (!BuildConfig.DEBUG) return
+        logInternal(tag, message)
+    }
+
+    @Synchronized
+    private fun logInternal(tag: String, message: String) {
         val line = "${formatter.format(Date())} [$tag] $message"
-        if (inMemory.size >= MAX_LINES) {
-            inMemory.removeFirst()
-        }
+        if (inMemory.size >= MAX_LINES) inMemory.removeFirst()
         inMemory.addLast(line)
     }
 

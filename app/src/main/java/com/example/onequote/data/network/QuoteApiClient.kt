@@ -1,8 +1,9 @@
 package com.example.onequote.data.network
 
 import com.example.onequote.data.model.QuoteContent
-import com.example.onequote.data.model.QuoteSourceConfig
 import com.example.onequote.data.model.BuiltinSources
+import com.example.onequote.data.model.QuoteSourceConfig
+import com.example.onequote.data.model.QuoteSourceKind
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -19,6 +20,10 @@ class QuoteApiClient {
         .build()
 
     fun fetch(source: QuoteSourceConfig): Result<QuoteContent> {
+        if (source.sourceKind != QuoteSourceKind.REMOTE) {
+            return Result.failure(IllegalArgumentException("unsupported_source_kind"))
+        }
+
         val httpUrlBuilder = source.url.toHttpUrlOrNull()
             ?.newBuilder()
             ?: return Result.failure(IllegalArgumentException("invalid_url"))
@@ -68,7 +73,7 @@ class QuoteApiClient {
         return Result.success(
             QuoteContent(
                 text = text,
-                author = parsed.fromWho?.trim().takeUnless { it.isNullOrBlank() },
+                author = resolveHitokotoAuthor(parsed.fromWho, parsed.from, parsed.creator),
                 sourceType = source.typeName,
                 sourceTypeCode = normalizedCode,
                 sourceFrom = parsed.from?.trim().takeUnless { it.isNullOrBlank() }
@@ -95,6 +100,15 @@ class QuoteApiClient {
         val code = raw?.trim()?.lowercase().orEmpty()
         return if (code in BuiltinSources.allHitokotoTypeCodes) code else "a"
     }
+
+    /**
+     * hitokoto 的可展示作者信息会分布在多个字段中，这里做顺序兜底，避免作者高概率为空。
+     */
+    internal fun resolveHitokotoAuthor(fromWho: String?, from: String?, creator: String?): String? {
+        return sequenceOf(fromWho, from, creator)
+            .map { it?.trim().orEmpty() }
+            .firstOrNull { it.isNotBlank() }
+    }
 }
 
 @Serializable
@@ -116,6 +130,6 @@ private data class HitokotoResponse(
     val type: String? = null,
     val from: String? = null,
     @kotlinx.serialization.SerialName("from_who")
-    val fromWho: String? = null
+    val fromWho: String? = null,
+    val creator: String? = null
 )
-

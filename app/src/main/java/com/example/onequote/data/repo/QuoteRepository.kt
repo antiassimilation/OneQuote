@@ -4,6 +4,7 @@ import com.example.onequote.data.model.AppSettings
 import com.example.onequote.data.model.BuiltinSources
 import com.example.onequote.data.model.FavoriteQuote
 import com.example.onequote.data.model.QuoteContent
+import com.example.onequote.data.model.QuoteSourceKind
 import com.example.onequote.data.model.QuoteSourceConfig
 import com.example.onequote.data.network.QuoteApiClient
 import com.example.onequote.data.store.AppSettingsStore
@@ -41,6 +42,8 @@ class QuoteRepository(
             typeName = typeName.trim(),
             url = url.trim(),
             appKey = appKey.trim(),
+            sourceKind = QuoteSourceKind.REMOTE,
+            weight = 1,
             enabled = false,
             tempDisabled = false,
             failStreak = 0
@@ -80,18 +83,30 @@ class QuoteRepository(
         }
     }
 
+    suspend fun updateSourceWeight(sourceId: String, weight: Int) {
+        val safeWeight = weight.coerceAtLeast(1)
+        store.update { current ->
+            current.copy(
+                sources = current.sources.map { source ->
+                    if (source.id == sourceId) source.copy(weight = safeWeight) else source
+                }
+            )
+        }
+    }
+
     suspend fun testAndEnableSource(sourceId: String): Result<Unit> {
         AppDebugLogger.log(logTag, "test_and_enable_start sourceId=$sourceId")
         val settings = store.getSettings()
         val source = settings.sources.firstOrNull { it.id == sourceId }
             ?: return Result.failure(IllegalArgumentException("source_not_found"))
 
-        if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty()) {
-            AppDebugLogger.log(logTag, "test_and_enable_blocked sourceId=$sourceId reason=empty_type_selection")
-            return Result.failure(IllegalStateException("builtin_type_empty"))
+        if (!canSourceBeEnabled(source, settings.favorites)) {
+            val reason = if (source.sourceKind == QuoteSourceKind.FAVORITES) "favorites_empty" else "builtin_type_empty"
+            AppDebugLogger.log(logTag, "test_and_enable_blocked sourceId=$sourceId reason=$reason")
+            return Result.failure(IllegalStateException(reason))
         }
 
-        val testResult = apiClient.fetch(source)
+        val testResult = fetchFromSource(source, settings.favorites)
         return if (testResult.isSuccess) {
             AppDebugLogger.log(logTag, "test_and_enable_success sourceId=$sourceId")
             store.update { current ->
@@ -107,7 +122,15 @@ class QuoteRepository(
             store.update { current ->
                 current.copy(
                     sources = current.sources.map {
-                        if (it.id == sourceId) it.copy(enabled = false, tempDisabled = true, failStreak = 0) else it
+                        if (it.id == sourceId) {
+                            if (it.sourceKind == QuoteSourceKind.FAVORITES) {
+                                it.copy(enabled = false, tempDisabled = false, failStreak = 0)
+                            } else {
+                                it.copy(enabled = false, tempDisabled = true, failStreak = 0)
+                            }
+                        } else {
+                            it
+                        }
                     }
                 )
             }
@@ -277,73 +300,51 @@ class QuoteRepository(
         val now = System.currentTimeMillis()
         val gate = enterRefreshGate(now)
         if (gate != null) {
-            AppDebugLogger.log(logTag, "refresh_blocked reason=$gate")
+            AppDebugLogger.log(logTag) { "refresh_blocked reason=$gate" }
             return Result.failure(IllegalStateException(gate))
         }
 
-        AppDebugLogger.log(logTag, "refresh_start")
+        AppDebugLogger.log(logTag) { "refresh_start" }
         try {
             val current = store.getSettings()
-            val enabledSources = current.sources.filter { source ->
-                source.enabled && !(source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty())
-            }
+            val enabledSources = current.sources.filter { source -> source.isEnabledForRefresh(current.favorites) }
             if (enabledSources.isEmpty()) {
-                AppDebugLogger.log(logTag, "refresh_failed reason=no_enabled_source")
+                AppDebugLogger.log(logTag) { "refresh_failed reason=no_enabled_source" }
                 return Result.failure(IllegalStateException("no_enabled_source"))
             }
 
-            val shuffled = enabledSources.shuffled()
+            val orderedSources = buildWeightedSourceAttemptOrder(enabledSources)
             var lastError: Throwable = IllegalStateException("refresh_failed")
             var attemptedCount = 0
-            for (source in shuffled) {
+            for (source in orderedSources) {
                 // 实时启用态再校验，避免刷新循环期间来源被关闭后仍继续请求。
-                if (!isSourceEnabledForRefresh(source.id)) {
-                    AppDebugLogger.log(logTag, "refresh_source_skipped_disabled sourceId=${source.id} name=${source.typeName}")
+                val latestSource = getLatestRefreshableSource(source.id)
+                if (latestSource == null) {
+                    AppDebugLogger.log(logTag) { "refresh_source_skipped_disabled sourceId=${source.id} name=${source.typeName}" }
                     continue
                 }
 
                 attemptedCount += 1
-                val result = apiClient.fetch(source)
+                val latestSettings = store.getSettings()
+                val result = fetchFromSource(latestSource, latestSettings.favorites)
                 if (result.isSuccess) {
                     val quote = result.getOrThrow()
-                    AppDebugLogger.log(logTag, "refresh_success source=${source.typeName} len=${quote.text.length}")
-                    store.update { settings ->
-                        settings.copy(
-                            lastQuote = quote,
-                            sources = settings.sources.map {
-                                if (it.id == source.id) it.copy(failStreak = 0, tempDisabled = false) else it
-                            }
-                        )
-                    }
+                    AppDebugLogger.log(logTag) { "refresh_success source=${latestSource.typeName} len=${quote.text.length}" }
+                    persistRefreshSuccess(latestSource.id, quote)
                     return Result.success(quote)
                 }
 
                 lastError = result.exceptionOrNull() ?: IllegalStateException("unknown_error")
-                AppDebugLogger.log(logTag, "refresh_source_failed source=${source.typeName} error=${lastError.message}")
-                store.update { settings ->
-                    settings.copy(
-                        sources = settings.sources.map {
-                            if (it.id == source.id) {
-                                val newStreak = it.failStreak + 1
-                                if (newStreak >= 2) {
-                                    it.copy(enabled = false, tempDisabled = true, failStreak = 0)
-                                } else {
-                                    it.copy(failStreak = newStreak)
-                                }
-                            } else {
-                                it
-                            }
-                        }
-                    )
-                }
+                AppDebugLogger.log(logTag) { "refresh_source_failed source=${latestSource.typeName} error=${lastError.message}" }
+                persistRefreshFailure(latestSource)
             }
 
             if (attemptedCount == 0) {
-                AppDebugLogger.log(logTag, "refresh_failed reason=no_enabled_source_after_recheck")
+                AppDebugLogger.log(logTag) { "refresh_failed reason=no_enabled_source_after_recheck" }
                 return Result.failure(IllegalStateException("no_enabled_source"))
             }
 
-            AppDebugLogger.log(logTag, "refresh_failed final=${lastError.message}")
+            AppDebugLogger.log(logTag) { "refresh_failed final=${lastError.message}" }
             return Result.failure(lastError)
         } finally {
             leaveRefreshGate()
@@ -357,11 +358,78 @@ class QuoteRepository(
     private suspend fun isSourceEnabledForRefresh(sourceId: String): Boolean {
         val latest = store.getSettings()
         val source = latest.sources.firstOrNull { it.id == sourceId } ?: return false
-        if (!source.enabled) return false
-        if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty()) {
-            return false
+        return source.isEnabledForRefresh(latest.favorites)
+    }
+
+    private suspend fun getLatestRefreshableSource(sourceId: String): QuoteSourceConfig? {
+        val latest = store.getSettings()
+        val source = latest.sources.firstOrNull { it.id == sourceId } ?: return null
+        return source.takeIf { it.isEnabledForRefresh(latest.favorites) }
+    }
+
+    private fun canSourceBeEnabled(source: QuoteSourceConfig, favorites: List<FavoriteQuote>): Boolean {
+        return when (source.sourceKind) {
+            QuoteSourceKind.REMOTE -> {
+                !(source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty())
+            }
+
+            QuoteSourceKind.FAVORITES -> favorites.isNotEmpty()
         }
-        return true
+    }
+
+    private fun QuoteSourceConfig.isEnabledForRefresh(favorites: List<FavoriteQuote>): Boolean {
+        if (!enabled) return false
+        return canSourceBeEnabled(this, favorites)
+    }
+
+    private suspend fun fetchFromSource(
+        source: QuoteSourceConfig,
+        favorites: List<FavoriteQuote>
+    ): Result<QuoteContent> {
+        return when (source.sourceKind) {
+            QuoteSourceKind.REMOTE -> apiClient.fetch(source)
+            QuoteSourceKind.FAVORITES -> fetchFromFavorites(favorites)
+        }
+    }
+
+    private fun fetchFromFavorites(favorites: List<FavoriteQuote>): Result<QuoteContent> {
+        if (favorites.isEmpty()) {
+            return Result.failure(IllegalStateException("favorites_empty"))
+        }
+        val picked = favorites.random()
+        return Result.success(buildFavoriteQuoteContent(picked))
+    }
+
+    private suspend fun persistRefreshSuccess(sourceId: String, quote: QuoteContent) {
+        store.update { settings ->
+            settings.copy(
+                lastQuote = quote,
+                sources = settings.sources.map {
+                    if (it.id == sourceId) it.copy(failStreak = 0, tempDisabled = false) else it
+                }
+            )
+        }
+    }
+
+    private suspend fun persistRefreshFailure(source: QuoteSourceConfig) {
+        if (source.sourceKind == QuoteSourceKind.FAVORITES) return
+
+        store.update { settings ->
+            settings.copy(
+                sources = settings.sources.map {
+                    if (it.id == source.id) {
+                        val newStreak = it.failStreak + 1
+                        if (newStreak >= 2) {
+                            it.copy(enabled = false, tempDisabled = true, failStreak = 0)
+                        } else {
+                            it.copy(failStreak = newStreak)
+                        }
+                    } else {
+                        it
+                    }
+                }
+            )
+        }
     }
 
     /**
@@ -397,6 +465,23 @@ class QuoteRepository(
     private fun escapeCsv(input: String): String {
         val escaped = input.replace("\"", "\"\"")
         return "\"$escaped\""
+    }
+
+    /**
+     * 收藏来源被抽中后，内部按等概率返回一条收藏内容，并保留原来源描述。
+     */
+    internal fun buildFavoriteQuoteContent(favorite: FavoriteQuote): QuoteContent {
+        return QuoteSourceSelection.buildFavoriteQuoteContent(favorite)
+    }
+
+    /**
+     * 多来源刷新采用“按权重随机且不重复尝试”的顺序生成策略。
+     */
+    internal fun buildWeightedSourceAttemptOrder(
+        sources: List<QuoteSourceConfig>,
+        random: Random = Random.Default
+    ): List<QuoteSourceConfig> {
+        return QuoteSourceSelection.buildWeightedSourceAttemptOrder(sources, random)
     }
 
     /** 严格 CSV 解析：支持双引号、换行与逗号转义，格式异常时直接失败。 */

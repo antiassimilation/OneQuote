@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.onequote.data.model.AppSettings
 import com.example.onequote.data.model.BuiltinSources
+import com.example.onequote.data.model.QuoteSourceConfig
+import com.example.onequote.data.model.QuoteSourceKind
 import com.example.onequote.data.util.StyleParsers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -53,23 +55,17 @@ class AppSettingsStore(private val context: Context) {
      */
     private fun normalizeSettings(input: AppSettings): AppSettings {
         val normalizedSources = input.sources
-            .map { source ->
-                if (source.isBuiltin && source.id == BuiltinSources.HITOKOTO_ID) {
-                    val filteredCodes = source.selectedTypeCodes
-                        .map(String::trim)
-                        .map(String::lowercase)
-                        .filter { it in BuiltinSources.allHitokotoTypeCodes }
-                        .distinct()
-                    source.copy(selectedTypeCodes = filteredCodes)
-                } else {
-                    source
-                }
-            }
+            .map(::normalizeSource)
             .toMutableList()
 
         val hasBuiltin = normalizedSources.any { it.id == BuiltinSources.HITOKOTO_ID }
         if (!hasBuiltin) {
             normalizedSources += BuiltinSources.createDefaultHitokotoSource()
+        }
+
+        val hasFavorites = normalizedSources.any { it.id == BuiltinSources.FAVORITES_ID }
+        if (!hasFavorites) {
+            normalizedSources += BuiltinSources.createFavoritesSource()
         }
 
         val normalizedStyle = input.style.copy(
@@ -79,8 +75,52 @@ class AppSettingsStore(private val context: Context) {
 
         return input.copy(
             sources = normalizedSources,
-            style = normalizedStyle
+            style = normalizedStyle,
+            autoRefreshMinutes = input.autoRefreshMinutes.coerceIn(1, 60)
         )
     }
-}
 
+    /**
+     * 统一兜底来源配置，确保旧版本数据升级后也能安全参与刷新与展示。
+     */
+    private fun normalizeSource(source: QuoteSourceConfig): QuoteSourceConfig {
+        val safeWeight = source.weight.coerceAtLeast(1)
+        return when {
+            source.id == BuiltinSources.HITOKOTO_ID -> {
+                val filteredCodes = source.selectedTypeCodes
+                    .map(String::trim)
+                    .map(String::lowercase)
+                    .filter { it in BuiltinSources.allHitokotoTypeCodes }
+                    .distinct()
+                source.copy(
+                    typeName = BuiltinSources.HITOKOTO_NAME,
+                    url = BuiltinSources.HITOKOTO_URL,
+                    sourceKind = QuoteSourceKind.REMOTE,
+                    isBuiltin = true,
+                    selectedTypeCodes = filteredCodes,
+                    weight = safeWeight
+                )
+            }
+
+            source.id == BuiltinSources.FAVORITES_ID || source.sourceKind == QuoteSourceKind.FAVORITES -> {
+                source.copy(
+                    id = BuiltinSources.FAVORITES_ID,
+                    typeName = BuiltinSources.FAVORITES_NAME,
+                    url = BuiltinSources.FAVORITES_URL,
+                    appKey = "",
+                    sourceKind = QuoteSourceKind.FAVORITES,
+                    isBuiltin = true,
+                    selectedTypeCodes = emptyList(),
+                    weight = safeWeight,
+                    failStreak = 0,
+                    tempDisabled = false
+                )
+            }
+
+            else -> source.copy(
+                sourceKind = QuoteSourceKind.REMOTE,
+                weight = safeWeight
+            )
+        }
+    }
+}

@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
@@ -84,20 +86,23 @@ import com.example.onequote.data.model.FavoriteQuote
 import com.example.onequote.data.model.BuiltinSources
 import com.example.onequote.data.model.LayoutMode
 import com.example.onequote.data.model.QuoteContent
+import com.example.onequote.data.model.QuoteSourceConfig
+import com.example.onequote.data.model.QuoteSourceKind
 import com.example.onequote.data.model.ShadowPreset
 import com.example.onequote.data.model.TextAlignMode
 import com.example.onequote.data.model.WidgetClickAction
 import com.example.onequote.data.model.WidgetStyleConfig
 import com.example.onequote.data.repo.QuoteRepository
 import com.example.onequote.data.util.AppDebugLogger
+import com.example.onequote.data.util.RuntimeFlagStore
 import com.example.onequote.data.util.StyleParsers
-import com.example.onequote.scheduler.RefreshScheduler
 import com.example.onequote.ui.theme.OneQuoteTheme
 import com.example.onequote.widget.OneQuoteWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,12 +286,12 @@ private fun OnboardingWelcomeScreen(
             Spacer(Modifier.height(20.dp))
 
             FullWidthButton("省电权限请求") {
-                onToast("用途：降低系统省电策略对自动刷新的影响")
+                onToast("作用：防止省电策略影响自动刷新")
                 launchIgnoreBatteryOptimization(context, batteryLauncher::launch, onToast)
             }
             Spacer(Modifier.height(10.dp))
             FullWidthButton("自启动") {
-                onToast("用途：提升后台定时刷新可达性")
+                onToast("作用：防止杀后台后无法自动刷新")
                 launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
             }
 
@@ -297,7 +302,7 @@ private fun OnboardingWelcomeScreen(
                         add("未开启省电策略豁免：自动刷新可能延迟或失败")
                     }
                     if (!autoStartVisited) {
-                        add("未完成自启动设置确认：后台刷新稳定性可能下降")
+                        add("未完成自启动设置：后台自动刷新可能失败")
                     }
                 }
                 if (impacts.isEmpty()) {
@@ -504,6 +509,7 @@ private fun ApiSettingsScreen(
 
     val builtinSource = settings?.sources.orEmpty().firstOrNull { it.id == BuiltinSources.HITOKOTO_ID }
     val builtinSelected = builtinSource?.selectedTypeCodes.orEmpty()
+    val favoriteCount = settings?.favorites?.size ?: 0
 
     ScreenContainer(title = "API设置") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -532,9 +538,11 @@ private fun ApiSettingsScreen(
                 }
                 scope.launch(Dispatchers.IO) {
                     repository.addSource(sourceType, sourceUrl, sourceAppKey)
-                    sourceType = ""
-                    sourceUrl = ""
-                    sourceAppKey = ""
+                    withContext(Dispatchers.Main) {
+                        sourceType = ""
+                        sourceUrl = ""
+                        sourceAppKey = ""
+                    }
                 }
             }
 
@@ -542,12 +550,17 @@ private fun ApiSettingsScreen(
                 showBuiltinDialog = true
             }
 
+            Text(
+                text = "支持对多来源调用；权重越高，刷新出现的概率越高。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             if (showBuiltinDialog) {
                 val allTypes = BuiltinSources.hitokotoTypeOptions
                 var selectedCodes by remember(builtinSelected) { mutableStateOf(builtinSelected.toSet()) }
                 AlertDialog(
                     onDismissRequest = { showBuiltinDialog = false },
-                    title = { Text("应用内置源：一言 hitokoto") },
+                    title = { Text("应用内置源：一言hitokoto") },
                     text = {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -593,46 +606,75 @@ private fun ApiSettingsScreen(
                 Text("请在上方添加来源", color = Color.Gray)
             } else {
                 sources.forEach { source ->
+                    val sourceSubtitle = when (source.sourceKind) {
+                        QuoteSourceKind.FAVORITES -> "从收藏随机抽取句子（当前 $favoriteCount 条）"
+                        QuoteSourceKind.REMOTE -> source.url
+                    }
+
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth(0.75f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth(0.75f)) {
                                 Text(source.typeName)
-                                Text(source.url, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(sourceSubtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (source.sourceKind == QuoteSourceKind.FAVORITES && favoriteCount == 0) {
+                                    Text("收藏为空，启用后不会参与随机调用", color = Color.Red)
+                                }
                                 if (source.tempDisabled) {
                                     Text("已停用，需手动重新勾选", color = Color.Red)
                                 }
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = source.enabled,
-                                    onCheckedChange = { checked ->
-                                        scope.launch(Dispatchers.IO) {
-                                            if (source.isBuiltin && source.selectedTypeCodes.isEmpty()) {
-                                                withContext(Dispatchers.Main) { onToast("请先在“应用内置源”中选择至少一个分类") }
-                                                return@launch
-                                            }
-                                            if (checked) {
-                                                val result = repository.testAndEnableSource(source.id)
-                                                if (result.isFailure) {
-                                                    withContext(Dispatchers.Main) { onToast("首次测试失败：该来源不可用") }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = source.enabled,
+                                        onCheckedChange = { checked ->
+                                            scope.launch(Dispatchers.IO) {
+                                                if (source.id == BuiltinSources.HITOKOTO_ID && source.selectedTypeCodes.isEmpty()) {
+                                                    withContext(Dispatchers.Main) { onToast("请先在“应用内置源”中选择至少一个分类") }
+                                                    return@launch
                                                 }
-                                            } else {
-                                                repository.disableSource(source.id)
+                                                if (source.sourceKind == QuoteSourceKind.FAVORITES && favoriteCount == 0) {
+                                                    withContext(Dispatchers.Main) { onToast("收藏为空，无法启用“收藏”来源") }
+                                                    return@launch
+                                                }
+                                                if (checked) {
+                                                    val result = repository.testAndEnableSource(source.id)
+                                                    if (result.isFailure) {
+                                                        withContext(Dispatchers.Main) {
+                                                            onToast(sourceEnableFailureMessage(result.exceptionOrNull()?.message, source))
+                                                        }
+                                                    }
+                                                } else {
+                                                    repository.disableSource(source.id)
+                                                }
+                                                OneQuoteWidgetProvider.refreshAll(context)
                                             }
-                                            OneQuoteWidgetProvider.refreshAll(context)
                                         }
-                                    }
-                                )
-                                if (!source.isBuiltin) {
-                                    TextButton(onClick = { scope.launch(Dispatchers.IO) { repository.removeSource(source.id) } }) {
-                                        Text("删除")
+                                    )
+                                    if (!source.isBuiltin) {
+                                        TextButton(onClick = { scope.launch(Dispatchers.IO) { repository.removeSource(source.id) } }) {
+                                            Text("删除")
+                                        }
                                     }
                                 }
                             }
+
+                            SourceWeightEditor(
+                                source = source,
+                                enabled = source.enabled,
+                                onCommit = { weight ->
+                                    scope.launch(Dispatchers.IO) {
+                                        repository.updateSourceWeight(source.id, weight)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -914,7 +956,7 @@ private fun BeautySettingsScreen(
                 val text = toRgba(fontRgb, fontAlpha)
                 val authorText = toRgba(authorRgb, authorAlpha)
                 if (bg == null || text == null || authorText == null) {
-                    onToast("颜色格式错误，RGB需为 r.g.b 且透明度 0-255")
+                    onToast("颜色格式错误，RGB填入格式为R.G.B 且透明度范围为0-255")
                     return@FullWidthButton
                 }
 
@@ -958,18 +1000,27 @@ private fun AppSettingsScreen(
     var singleAction by remember { mutableStateOf(WidgetClickAction.REFRESH) }
     var doubleAction by remember { mutableStateOf(WidgetClickAction.COPY) }
     var pendingExportLog by remember { mutableStateOf<String?>(null) }
+    var showAutoStartGuideDialog by remember { mutableStateOf(false) }
+    var autoRefreshMinutesInput by remember { mutableStateOf("30") }
 
     LaunchedEffect(settings?.savedPreviewVersion) {
         val current = settings ?: return@LaunchedEffect
         singleAction = current.singleClickAction
         doubleAction = current.doubleClickAction
+        autoRefreshMinutesInput = current.autoRefreshMinutes.toString()
+    }
+
+    LaunchedEffect(Unit) {
+        showAutoStartGuideDialog = withContext(Dispatchers.IO) {
+            RuntimeFlagStore.consumeNeedAutoStartGuide(context)
+        }
     }
 
     val batteryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast("省电策略设置页已返回")
+        onToast("省电策略设置页退出")
     }
     val autoStartLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        onToast("自启动设置页已返回")
+        onToast("自启动设置页退出")
     }
     val exportLogLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         val logText = pendingExportLog
@@ -985,8 +1036,58 @@ private fun AppSettingsScreen(
         }
     }
 
+    if (showAutoStartGuideDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoStartGuideDialog = false },
+            title = { Text("后台刷新提示") },
+            text = {
+                Text("检测到你曾从桌面小组件触发主动刷新。自动刷新任务已经建立，如仍出现后台不刷新的情况，请重新检查自启动与省电限制。")
+            },
+            confirmButton = {
+                TextButton(onClick = { showAutoStartGuideDialog = false }) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
+
     ScreenContainer(title = "应用设置") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("自动刷新")
+            Text(
+                text = "当前周期任务：每 ${(settings?.autoRefreshMinutes ?: 30)} 分钟执行一次",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = autoRefreshMinutesInput,
+                onValueChange = { changed ->
+                    autoRefreshMinutesInput = changed.filter(Char::isDigit).take(2)
+                },
+                label = { Text("自动刷新时间（分钟）") },
+                supportingText = { Text("请输入 1~60 的整数") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            FullWidthButton("保存") {
+                val targetMinutes = autoRefreshMinutesInput.toIntOrNull()
+                if (targetMinutes == null || targetMinutes !in 1..60) {
+                    onToast("请输入 1~60 的整数分钟")
+                    return@FullWidthButton
+                }
+                scope.launch(Dispatchers.IO) {
+                    val current = repository.getSettings()
+                    if (current.autoRefreshMinutes == targetMinutes) return@launch
+                    repository.saveSettings(current.copy(autoRefreshMinutes = targetMinutes))
+                    withContext(Dispatchers.Main) {
+                        autoRefreshMinutesInput = targetMinutes.toString()
+                    }
+                }
+            }
+            FullWidthButton("恢复当前自动刷新时间") {
+                autoRefreshMinutesInput = (settings?.autoRefreshMinutes ?: 30).toString()
+            }
+
             HorizontalDivider()
             FullWidthButton("导出日志") {
                 scope.launch(Dispatchers.IO) {
@@ -1018,11 +1119,11 @@ private fun AppSettingsScreen(
             Spacer(modifier = Modifier.height(10.dp))
             Text("权限管理")
             FullWidthButton("省电权限") {
-                onToast("用途：保证自动刷新稳定")
+                onToast("作用：防止省电策略影响自动刷新")
                 launchIgnoreBatteryOptimization(context, batteryLauncher::launch, onToast)
             }
             FullWidthButton("自启动") {
-                onToast("用途：提升后台刷新可达性")
+                onToast("作用：防止杀后台后无法自动刷新")
                 launchAutoStartSettings(context, autoStartLauncher::launch, onToast)
             }
         }
@@ -1166,6 +1267,41 @@ private fun BeautyPreviewCard(
 private fun FullWidthButton(text: String, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Text(text)
+    }
+}
+
+@Composable
+private fun SourceWeightEditor(
+    source: QuoteSourceConfig,
+    enabled: Boolean,
+    onCommit: (Int) -> Unit
+) {
+    var sliderValue by remember(source.id, source.weight) { mutableStateOf(source.weight.toFloat()) }
+
+    LaunchedEffect(source.id, source.weight) {
+        sliderValue = source.weight.toFloat()
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val suffix = if (enabled) "" else "（启用后生效）"
+        Text("来源权重：${sliderValue.roundToInt()}$suffix")
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it.roundToInt().coerceIn(1, 10).toFloat() },
+            valueRange = 1f..10f,
+            steps = 8,
+            onValueChangeFinished = {
+                onCommit(sliderValue.roundToInt().coerceIn(1, 10))
+            }
+        )
+    }
+}
+
+private fun sourceEnableFailureMessage(reason: String?, source: QuoteSourceConfig): String {
+    return when (reason) {
+        "favorites_empty" -> "收藏为空，无法启用“收藏”来源"
+        "builtin_type_empty" -> "请先为一言hitokoto选择至少一个分类"
+        else -> "首次测试失败：${source.typeName} 当前不可用"
     }
 }
 
